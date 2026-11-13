@@ -29,7 +29,8 @@ describe('conversation capability mapping', () => {
     { api: 'openai-completions', compat: { supportsMidConvoSystemMessages: true, supportsMidConvoToolAdditions: true }, toolUpdate: 'addition-only' },
     { api: 'anthropic-messages', compat: { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true }, toolUpdate: 'in-history' },
     ...['openai-responses', 'azure-openai-responses', 'openai-codex-responses'].flatMap(api => [
-      { api, compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true }, toolUpdate: 'addition-only' as const },
+      { api, compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true }, toolUpdate: 'in-history' as const },
+      { api, compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true }, toolUpdate: 'in-history' as const },
       { api, compat: { supportsMidConvoSystemMessages: true, supportsToolSearch: true }, toolUpdate: 'addition-only' as const },
     ]),
     { api: 'mistral-conversations', compat: { supportsMidConvoSystemMessages: true } },
@@ -249,27 +250,28 @@ describe('historical tool availability on the wire', () => {
     })
   })
 
-  it('loads Codex tool additions through tool-search output', async () => {
+  it('loads Codex tool additions through in-place declarations', async () => {
     // Codex extracts an account id from the token before contacting the mock server.
     const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'fixture-account' } })).toString('base64url')
     const token = `e30.${payload}.fixture`
     const update = addition()
-    const { requests } = await send('openai-codex', 'gpt-5.5', {
+    const { requests } = await send('openai-codex', 'gpt-5.6-sol', {
       messages: [user('first'), update], tools: [baseline, added],
       toolHistory: { tools: [baseline], updates: [{ messageId: update.id, additions: [added] }] },
     }, token)
     expect(requests).toHaveLength(1)
-    expect(requests[0]).toMatchObject({
-      tools: [{ type: 'function', name: 'read' }],
-      input: [
-        { role: 'user', content: [{ type: 'input_text', text: 'first' }] },
-        { type: 'tool_search_call', execution: 'client', arguments: { query: 'search', limit: 1 } },
-        { type: 'tool_search_output', execution: 'client', tools: [
-          { type: 'function', name: 'search', description: added.description, parameters: added.parameters, defer_loading: true },
-        ] },
-        { role: 'developer', content: 'Instruction one.\nInstruction two.' },
-      ],
-    })
+    // The installed catalog gives Codex models both in-place tool changes and
+    // tool-search support, and the shared serializer prefers in-place changes.
+    expect(requests[0]).not.toHaveProperty('tools')
+    const input = (requests[0] as { input?: unknown[] } | undefined)?.input ?? []
+    expect(input).toHaveLength(5)
+    expect(input[0]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [expect.objectContaining({ type: 'function', name: 'read' })] })
+    expect(input[1]).toMatchObject({ role: 'user', content: [{ type: 'input_text', text: 'first' }] })
+    expect(JSON.stringify(input[2])).toContain('incremental tools update')
+    expect(input[3]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [
+      expect.objectContaining({ type: 'function', name: 'search', description: added.description, parameters: added.parameters }),
+    ] })
+    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\nInstruction two.' })
   })
 
   it('retains removed declarations and reactivates them through Anthropic history', async () => {
@@ -289,23 +291,28 @@ describe('historical tool availability on the wire', () => {
     ] })
   })
 
-  it('rebuilds the Responses baseline after its immediate tool is removed', async () => {
+  it('declares the Responses baseline in place after its immediate tool is removed', async () => {
     const update = addition()
     const remove = createDeveloperMessage({ source: { kind: 'tool-registry' }, content: [{ type: 'tool-removal', toolName: 'read' }] })
-    const { requests } = await send('openai', 'gpt-5.4', {
+    const { requests } = await send('openai', 'gpt-5.6-sol', {
       messages: [user('first'), update, remove], tools: [added],
       toolHistory: { tools: [baseline], updates: [
         { messageId: update.id, additions: [added] }, { messageId: remove.id, additions: [] },
       ] },
     })
     expect(requests).toHaveLength(1)
-    expect(requests[0]).toHaveProperty('tools', [expect.objectContaining({ name: 'search' })])
-    expect(requests[0]).toHaveProperty('input', [
-      { role: 'user', content: [{ type: 'input_text', text: 'first' }] },
-      { role: 'developer', content: 'Instruction one.\nInstruction two.' },
-    ])
+    // The route declares every tool in place, so the baseline is replayed as a
+    // declaration and the removal travels as a notice, with no top-level list.
+    expect(requests[0]).not.toHaveProperty('tools')
+    const input = (requests[0] as { input?: unknown[] } | undefined)?.input ?? []
+    expect(input).toHaveLength(6)
+    expect(input[0]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [expect.objectContaining({ name: 'read' })] })
+    expect(input[1]).toMatchObject({ role: 'user', content: [{ type: 'input_text', text: 'first' }] })
+    expect(JSON.stringify(input[2])).toContain('incremental tools update')
+    expect(input[3]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [expect.objectContaining({ name: 'search' })] })
+    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\nInstruction two.' })
+    expect(JSON.stringify(input[5])).toContain('no longer available')
     expect(JSON.stringify(requests[0])).not.toContain('tool_removal')
-    expect(JSON.stringify(requests[0])).not.toContain('Read a file')
   })
 
   it('uses current declarations when a request prefix omits recorded updates', async () => {

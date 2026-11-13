@@ -48,6 +48,7 @@
       - option "qwen-token-plan"
       - option "qwen-token-plan-cn"
       - option "qwen-token-plan-individual"
+      - option "qwen-token-plan-individual-cn"
       - option "radius"
       - option "together"
       - option "vercel-ai-gateway"

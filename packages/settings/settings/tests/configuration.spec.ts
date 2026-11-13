@@ -19,6 +19,14 @@ it('persists a model edit, updates the real consumer without remounting, and res
   expect(restored.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'changed' })
 })
 
+it('persists settings writes initiated by an active HMR transaction', async () => {
+  const { ctx } = await fixture()
+  await ctx.hmr.runExclusive(async () => {
+    await ctx.settings.update('first', { count: 8 })
+  })
+  expect(ctx.settings.describe().find(row => row.ns === 'first')!.value).toMatchObject({ count: 8 })
+})
+
 it('isolates instances, hides ordinary fields, rejects invalid edits, and redacts secrets', async () => {
   const { ctx, profile } = await fixture()
   const before = readFileSync(profile.patchPath, 'utf8')

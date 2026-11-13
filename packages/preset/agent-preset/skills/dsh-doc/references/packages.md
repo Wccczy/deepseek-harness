@@ -415,6 +415,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-bash-envrc` | yes | Bash executor that derives each command's environment from the project's .envrc through direnv export json |
 | `@deepseek-ai/dsh-bash-local` | yes | Local-subprocess implementation of the DeepSeek Harness bash executor seam |
 | `@deepseek-ai/dsh-bash-sandbox` | yes | Sandbox-consuming implementation of the DeepSeek Harness bash executor seam (confines every command via ctx.sandbox, reports denial/enforcement result facts) |
 | `@deepseek-ai/dsh-pwsh-local` | yes | Local PowerShell implementation of the DeepSeek Harness bash executor seam |

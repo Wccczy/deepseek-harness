@@ -793,6 +793,13 @@ interface LlmDiscoveredModel {
   maxTokens?: number
   /** Accepted input types when disclosed by the catalog or endpoint; absent means unknown. */
   inputModalities?: readonly ModelModality[]
+  /**
+   * Wire protocol the installed catalog names for this id, when it names one.
+   * An endpoint listing discloses no protocol, so only a catalog answer carries
+   * it; a surface that compares endpoints against protocols reads it instead of
+   * guessing from the model id.
+   */
+  api?: string
 }
 ```
 

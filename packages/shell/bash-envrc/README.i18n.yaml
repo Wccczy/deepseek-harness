@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/shell/bash-envrc/README.md
+/:
+  en: 4221901ebc22da9e
+  zh: 8a7a5bbc70bd2f95
+/deepseek-ai-dsh-bash-envrc:
+  en: c42762112a669e43
+  zh: 676a44b1dcc72575
+/deepseek-ai-dsh-bash-envrc/summary:
+  en: 032ed80d80abd98a
+  zh: 283f961f85add5cd
+/deepseek-ai-dsh-bash-envrc/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-bash-envrc/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/deepseek-ai-dsh-bash-envrc/use-this-package/when-to-choose-it:
+  en: d4689f303abb60ae
+  zh: 5524e62cecdd3d56
+/deepseek-ai-dsh-bash-envrc/use-this-package/how-a-command-environment-is-resolved:
+  en: 0731209a776d6804
+  zh: 14732fe98135a822
+/deepseek-ai-dsh-bash-envrc/use-this-package/which-variables-are-refused:
+  en: 5c33ff2dd423493f
+  zh: 7d0af52116310b90
+/deepseek-ai-dsh-bash-envrc/use-this-package/configuration:
+  en: 4fd9dc7a80334ee6
+  zh: eb89731fe0818d2f
+/deepseek-ai-dsh-bash-envrc/use-this-package/failures:
+  en: ff17524934cdb1ee
+  zh: 8ad279c54814ef69
+/deepseek-ai-dsh-bash-envrc/use-this-package/enable-it-in-a-profile:
+  en: bbd7d19a8572afb4
+  zh: e51e40e41bb3d632
+/deepseek-ai-dsh-bash-envrc/understand-the-implementation:
+  en: bf0535ed395fa7b6
+  zh: 9ac4a9ce91babea9
+/deepseek-ai-dsh-bash-envrc/further-exploration:
+  en: 0f65c6d9fab429e0
+  zh: aaaf465c38511701
+/deepseek-ai-dsh-bash-envrc/model-experience:
+  en: 70badfa609e73a8b
+  zh: 75a80d5007cf2a54
+/deepseek-ai-dsh-bash-envrc/model-experience/kv-cache-effect:
+  en: 40294c1c31b74824
+  zh: 5b904b102c94666d
+/deepseek-ai-dsh-bash-envrc/known-limitations-and-deferred-work:
+  en: 345bd44baee437b3
+  zh: 42c78dd382289fb5
+/deepseek-ai-dsh-bash-envrc/known-limitations-and-deferred-work/dev-note:
+  en: b93c4d3a6ebbf5b1
+  zh: e7c8bf14d90ceac8

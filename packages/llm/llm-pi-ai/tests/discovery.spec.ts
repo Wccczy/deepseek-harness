@@ -82,6 +82,15 @@ describe('catalog-route model discovery', () => {
     expect(models.find(model => model.id === 'gpt-6-astra')).toMatchObject({ inputModalities: installed?.input })
   })
 
+  it('discloses the wire protocol the catalog routes each model to', async () => {
+    const ctx = await harness()
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })
+    // `gpt-6-*` answers only on the Responses API, which is what a surface
+    // comparing gateway endpoints against protocols needs to know.
+    expect(models.find(model => model.id === 'gpt-6-astra')).toMatchObject({ api: 'openai-responses' })
+    expect(models.every(model => typeof model.api === 'string' && model.api.length > 0)).toBe(true)
+  })
+
   it('answers from the installed registry, with capacities and no network call', async () => {
     const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
     const ctx = await harness()

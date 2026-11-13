@@ -439,6 +439,7 @@
       "@deepseek-ai/dsh-attachment-local": ["./packages/attachment/attachment-local/src"],
       "@deepseek-ai/dsh-authorization": ["./packages/credentials/authorization/src"],
       "@deepseek-ai/dsh-base": ["./packages/bundle/base/src"],
+      "@deepseek-ai/dsh-bash-envrc": ["./packages/shell/bash-envrc/src"],
       "@deepseek-ai/dsh-bash-local": ["./packages/shell/bash-local/src"],
       "@deepseek-ai/dsh-bash-sandbox": ["./packages/shell/bash-sandbox/src"],
       "@deepseek-ai/dsh-brand": ["./packages/util/brand/src"],

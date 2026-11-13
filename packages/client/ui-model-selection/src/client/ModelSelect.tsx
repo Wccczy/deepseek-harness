@@ -4,7 +4,8 @@
  * the Model / Effort row pair (label + current value + a right chevron),
  * each drilling into its own list — the provider-grouped model list over
  * the shared directory, and the effort levels. The trigger (313:14108's
- * ToggleButton) shows both: model name + effort in the caption tone.
+ * ToggleButton) shows the provider group (subscription) serving the model,
+ * then the model and the effort in the caption tone.
  * Model catalogs above four entries show search, which retains focus while
  * ↑/↓ cycle the highlighted result; Enter and Tab accept it. Smaller model
  * catalogs, root panes, and effort panes move focus between rows. Escape and Shift+Tab leave a drilled pane first and otherwise close
@@ -397,14 +398,19 @@ export function ModelSelect(
     ? t('trigger.loading')
     : currentChoice?.model.name
       ?? t('trigger.fallback')
-  const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  // The provider group is the subscription a model is served from; the
+  // trigger leads with it so a session shows the source before the model.
+  const providerLabel = currentChoice?.group.provider.name
+  const triggerLabel = [providerLabel, modelLabel, effortLabel]
+    .filter(part => part !== undefined)
+    .join(' · ')
   const triggerAria = waiting
     ? t('trigger.loading')
-    : currentChoice === undefined
+    : providerLabel === undefined
       ? t('trigger.selectAria')
       : effortLabel === undefined
-        ? t('trigger.aria', { model: modelLabel })
-        : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
+        ? t('trigger.aria', { model: modelLabel, provider: providerLabel })
+        : t('trigger.ariaEffort', { model: modelLabel, provider: providerLabel, effort: effortLabel })
   const renderModelLabel = (
     provider: ModelLabelOwner['provider'], model: ModelLabelOwner['model'],
     placement: ModelLabelOwner['placement'], selected: boolean,
@@ -464,10 +470,11 @@ export function ModelSelect(
         }}
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
+        {providerLabel !== undefined && <span className={css.triggerSource}>{`${providerLabel} · `}</span>}
         <span className={css.triggerLabel}>
           {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'trigger', true)}
         </span>
-        {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
+        {effortLabel !== undefined && <span className={css.triggerEffort}>{` · ${effortLabel}`}</span>}
         {busy
           ? <StateDot state="ongoing" />
           : <IconChevronDownOutlineRegular className={clsx(css.chevron, open && css.chevronOpen)} />}

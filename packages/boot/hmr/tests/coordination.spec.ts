@@ -34,7 +34,7 @@ async function fixture(config: Partial<Hmr.Config> = {}) {
   return { ctx, dir, hmr: ctx.hmr, provider }
 }
 
-it('serializes mutations, rejects nesting and keeps the queue usable after failure', async () => {
+it('serializes mutations, joins nested calls and keeps the queue usable after failure', async () => {
   const { hmr } = await fixture()
   const release = Promise.withResolvers<undefined>()
   onTestFinished(() => { release.resolve(undefined) })
@@ -50,13 +50,39 @@ it('serializes mutations, rejects nesting and keeps the queue usable after failu
   await entered.promise
   const second = hmr.runExclusive(async () => {
     order.push(2)
-    await expect(hmr.runExclusive(async () => {})).rejects.toThrow('cannot be nested')
+    await hmr.runExclusive(async () => { order.push(3) })
+    order.push(4)
   })
   expect(order).toEqual([1])
   release.resolve(undefined)
   await rejection
   await second
-  expect(order).toEqual([1, 2])
+  expect(order).toEqual([1, 2, 3, 4])
+})
+
+it('queues calls that outlive the transaction context that created them', async () => {
+  const { hmr } = await fixture()
+  const releaseChild = Promise.withResolvers<undefined>()
+  const releaseCurrent = Promise.withResolvers<undefined>()
+  onTestFinished(() => { releaseChild.resolve(undefined); releaseCurrent.resolve(undefined) })
+  const order: string[] = []
+  let child!: Promise<void>
+  await hmr.runExclusive(async () => {
+    child = (async () => {
+      await releaseChild.promise
+      await hmr.runExclusive(async () => { order.push('child') })
+    })()
+  })
+  const current = hmr.runExclusive(async () => {
+    order.push('current')
+    await releaseCurrent.promise
+  })
+  releaseChild.resolve(undefined)
+  await Promise.resolve()
+  expect(order).toEqual(['current'])
+  releaseCurrent.resolve(undefined)
+  await Promise.all([current, child])
+  expect(order).toEqual(['current', 'child'])
 })
 
 it('holds configuration handlers behind configuration mutations', async () => {

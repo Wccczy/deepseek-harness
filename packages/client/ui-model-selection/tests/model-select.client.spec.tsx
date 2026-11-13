@@ -105,8 +105,8 @@ describe('ModelSelect label slot', () => {
         resolveText={resolveText} select={select} t={t} renderSlot={renderSlot} />
     </SessionProvider>)
     runtime.renderRoot()
-    const trigger = screen.getByRole('button', { name: '选择模型，当前 Same model' })
-    expect(trigger.textContent).toBe('Same model')
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 Same model（trusted gateway）' })
+    expect(trigger.textContent).toBe('trusted gateway · Same model')
     const plugin = await runtime.mount({ inject: ['slots'], apply(ctx) {
       ctx.slots.inject('conversation.input.model.label', () => ctx.slots.register({
         name: 'conversation.input.model.label',
@@ -135,7 +135,7 @@ describe('ModelSelect label slot', () => {
     await waitFor(() => { expect(document.activeElement).toBe(trigger) })
     await act(async () => { await plugin.dispose() })
     expect(runtime.slots.entries('conversation.input.model.label')).toHaveLength(0)
-    expect(trigger.textContent).toBe('Same model')
+    expect(trigger.textContent).toBe('external gateway · Same model')
     expect(trigger.querySelector('[data-provider-id="external"][data-model-id="same-model"]')).toBeTruthy()
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
@@ -173,8 +173,8 @@ describe('ModelSelect catalog badges', () => {
   it('places the badge before the trigger name and after names in the menus', () => {
     render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(badged())}
       load={vi.fn()} resolveText={chinese} select={vi.fn()} t={t} />)
-    const trigger = screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4.1-Flash' })
-    expect(trigger.textContent).toBe('新 DeepSeek-V4.1-Flash')
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4.1-Flash（DeepSeek）' })
+    expect(trigger.textContent).toBe('DeepSeek · 新 DeepSeek-V4.1-Flash')
     expect(screen.getByText('新').getAttribute('data-tone')).toBe('info')
     fireEvent.click(trigger)
     const current = screen.getByRole('menuitem', { name: /^模型/ })
@@ -201,7 +201,7 @@ describe('ModelSelect catalog badges', () => {
         name: 'conversation.input.model.label',
       }, ({ model }) => <span>{model.name} [{model.badge?.tone ?? 'none'}]</span>))
     } })
-    expect(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4.1-Flash' }).textContent).toBe('DeepSeek-V4.1-Flash [info]')
+    expect(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4.1-Flash（DeepSeek）' }).textContent).toBe('DeepSeek · DeepSeek-V4.1-Flash [info]')
     expect(screen.queryByText('新')).toBeNull()
   })
 })
@@ -223,7 +223,7 @@ describe('ModelSelect reasoning effort', () => {
     />)
 
     const trigger = screen.getByRole('button', {
-      name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
+      name: '选择模型，当前 DeepSeek-V4-Flash（DeepSeek），推理等级 High',
     })
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
@@ -238,7 +238,7 @@ describe('ModelSelect reasoning effort', () => {
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
       })
-      expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash，推理等级 Max')
+      expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash（DeepSeek），推理等级 Max')
       expect(document.activeElement).toBe(trigger)
     })
   })
@@ -266,7 +266,7 @@ describe('ModelSelect reasoning effort', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', {
-      name: '选择模型，当前 Model，推理等级 Default',
+      name: '选择模型，当前 Model（Provider），推理等级 Default',
     }))
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
@@ -340,7 +340,7 @@ describe('ModelSelect reasoning effort', () => {
     directory.set(state())
     await waitFor(() => {
       expect(screen.getByRole('button', {
-        name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
+        name: '选择模型，当前 DeepSeek-V4-Flash（DeepSeek），推理等级 High',
       })).toBeTruthy()
     })
   })
@@ -1111,11 +1111,11 @@ it('restores the account model name after login without changing the saved route
   const directory = createSnapshotStore(state({ current: selected, groups, retainedEffort: 'High' }))
   render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
     resolveText={resolveText} select={vi.fn()} t={t} />)
-  expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
+  expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek 账号 · DeepSeek Flash · High')
   act(() => { directory.update((snapshot) => { snapshot.groups = []; snapshot.routable = false }) })
   expect(screen.getByRole('button', { name: '请选择模型' }).textContent).toBe('请选择模型')
   act(() => { directory.update((snapshot) => { snapshot.groups = groups; snapshot.routable = true }) })
-  expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
+  expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek 账号 · DeepSeek Flash · High')
   expect(directory.getSnapshot().current).toEqual(selected)
 })
 

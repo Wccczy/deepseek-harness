@@ -24,5 +24,5 @@
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Plan mode on, press to turn off": Plan
-- button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
+- button "Select model, current DeepSeek-V4-Flash (DeepSeek)": DeepSeek · DeepSeek-V4-Flash
 - button "Send message" [disabled]

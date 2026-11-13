@@ -53,6 +53,20 @@
   white-space: nowrap;
 }
 
+/* Provider group (the subscription serving the model) before the model name.
+   Same 13/20/400 caption tone as the effort. It keeps its width while the
+   effort (absorbed first) and then the model name take the deficit, so the
+   source stays readable under a long model name; the cap keeps a pathological
+   provider name from consuming the trigger's 360px width. */
+.triggerSource {
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-caption);
+}
+
 /* Effort value beside the model name (mock's 'High': same 13/20/400, caption
    tone). Adaptive priority: the huge shrink factor makes the effort absorb
    all deficit first — it ellipsizes away to nothing before the model name
@@ -75,6 +89,7 @@
 /* The composer measures expanded row demand and owns these display variables.
    Outside a composer, the trigger retains its text. */
 .triggerLabel,
+.triggerSource,
 .triggerEffort {
   display: var(--dsh-composer-model-text-display, block);
 }

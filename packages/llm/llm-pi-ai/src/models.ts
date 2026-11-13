@@ -84,8 +84,12 @@ export function conversationUpdates(model: Model<Api>): Pick<LlmResolvedModelInf
     && 'supportsMidConvoToolAdditions' in compat && compat.supportsMidConvoToolAdditions) {
     updates.toolUpdate = 'addition-only'
   } else if ((model.api === 'openai-responses' || model.api === 'azure-openai-responses' || model.api === 'openai-codex-responses')
-    && (('supportsAdditionalTools' in compat && compat.supportsAdditionalTools)
-      || ('supportsToolSearch' in compat && compat.supportsToolSearch))) {
+    && 'supportsAdditionalTools' in compat && compat.supportsAdditionalTools) {
+    // pi-ai declares every tool in place for these endpoints, starting with the
+    // baseline, so history carries each change instead of one top-level list.
+    updates.toolUpdate = 'in-history'
+  } else if ((model.api === 'openai-responses' || model.api === 'azure-openai-responses' || model.api === 'openai-codex-responses')
+    && 'supportsToolSearch' in compat && compat.supportsToolSearch) {
     updates.toolUpdate = 'addition-only'
   }
   return updates

@@ -27,6 +27,7 @@ import {
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
+  PROMPT_CACHE_KEY_MODES,
   PiAiCatalogError,
   resolveRouteModels,
   SUPPORTED_THINKING_FORMATS,
@@ -284,10 +285,12 @@ const chatTemplateKwarg: z<ChatTemplateKwargValue> = z.union([
   z.number(),
   z.boolean(),
   z.const(null),
+  // The placeholder's opt-out is optional upstream, while schemastery types
+  // every declared key as required.
   z.object({
     $var: z.union(CHAT_TEMPLATE_VARS).required(),
     omitWhenOff: z.boolean(),
-  }),
+  }) as z<Extract<ChatTemplateKwargValue, { $var: string }>>,
 ])
 
 const compatProfile: z<PiAiCompatProfile> = z.object({
@@ -299,6 +302,8 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
   maxTokensField: z.union(MAX_TOKENS_FIELDS),
   requiresToolResultName: z.boolean(),
   requiresAssistantAfterToolResult: z.boolean(),
+  requiresNonNullAssistantContent: z.boolean(),
+  requiresToolsWithToolHistory: z.boolean(),
   requiresThinkingAsText: z.boolean(),
   requiresReasoningContentOnAssistantMessages: z.boolean(),
   thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
@@ -311,12 +316,14 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
   supportsStrictMode: z.boolean(),
   cacheControlFormat: z.union(CACHE_CONTROL_FORMATS),
   supportsLongCacheRetention: z.boolean(),
+  promptCacheKeyMode: z.union(PROMPT_CACHE_KEY_MODES),
   supportsEagerToolInputStreaming: z.boolean(),
   supportsCacheControlOnTools: z.boolean(),
   supportsTemperature: z.boolean(),
   forceAdaptiveThinking: z.boolean(),
   allowEmptySignature: z.boolean(),
   supportsStrictTools: z.boolean(),
+  supportsMessageThreads: z.boolean(),
 })
 
 /**

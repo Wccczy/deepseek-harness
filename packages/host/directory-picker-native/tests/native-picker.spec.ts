@@ -45,6 +45,9 @@ describe('native directory picker', () => {
     // macOS key equivalents resolve against the menu, never the focused field.
     expect(call[1][3] ?? '').toContain("addItemWithTitleActionKeyEquivalent('Paste', 'paste:', 'v')")
     expect(call[1][3] ?? '').toContain('canChooseDirectories = true')
+    // AppKit hides dot- and flag-hidden directories unless the panel is told
+    // otherwise, and a workspace may live in either.
+    expect(call[1][3] ?? '').toContain('showsHiddenFiles = true')
     // A cancelled panel still lists its current directory in `URLs`.
     expect(call[1][3] ?? '').toContain("if (panel.runModal !== $.NSModalResponseOK) return '';")
     expect(call[1][4]).toBe('Select Workspace Directory')
@@ -85,6 +88,7 @@ describe('native directory picker', () => {
       canChooseDirectories: false,
       canCreateDirectories: false,
       allowsMultipleSelection: true,
+      showsHiddenFiles: false,
       message: '',
       get runModal(): number {
         modalEntries.push({
@@ -92,6 +96,7 @@ describe('native directory picker', () => {
           canChooseDirectories: panel.canChooseDirectories,
           canCreateDirectories: panel.canCreateDirectories,
           allowsMultipleSelection: panel.allowsMultipleSelection,
+          showsHiddenFiles: panel.showsHiddenFiles,
           message: panel.message,
           activationCount: activate.mock.calls.length,
           queuedOperationCount: operations.length,
@@ -142,6 +147,7 @@ describe('native directory picker', () => {
       canChooseDirectories: true,
       canCreateDirectories: true,
       allowsMultipleSelection: false,
+      showsHiddenFiles: true,
       message: 'Select Workspace Directory',
       activationCount: 0,
       queuedOperationCount: 1,

@@ -55,6 +55,9 @@ function run(argv) {
   panel.canChooseDirectories = true;
   panel.canCreateDirectories = true;
   panel.allowsMultipleSelection = false;
+  // AppKit hides dot-directories and flag-hidden ones by default, and both
+  // hold workspaces ($HOME/.config, $HOME/Library). ⌘⇧. still toggles them.
+  panel.showsHiddenFiles = true;
   panel.message = argv[0];
   $.NSOperationQueue.mainQueue.addOperationWithBlock(function() {
     app.activateIgnoringOtherApps(true);

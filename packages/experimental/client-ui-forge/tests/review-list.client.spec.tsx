@@ -5,15 +5,11 @@
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ChangeRequestIssue, ChangeRequestLabel, ChangeRequestSummary } from '@deepseek-ai/dsh-experimental-forge/types'
 import { en } from '../src/client/locales.ts'
 import { fittingLabels, ReviewLabels } from '../src/client/review-page/ReviewLabels.tsx'
 import { ReviewList, type ReviewListProps } from '../src/client/review-page/ReviewList.tsx'
-import { ReviewNavCount, ReviewNavIcon, type ReviewNavCountProps } from '../src/client/review-page/ReviewNav.tsx'
-import type { StreamSnapshot } from '../src/client/source.ts'
 import css from '../src/client/review-page/ReviewPage.module.css'
 import { ref } from './client-fixtures.client.ts'
 import { failedList, frame, host, list, prUrl, summary } from './review-fixtures.client.ts'
@@ -470,32 +466,6 @@ describe('ReviewList filter menu', () => {
     open(direct)
     fireEvent.click(within(document.body).getByRole('menuitem', { name: 'Include team requests' }))
     expect(direct.props.onToggleDirect).toHaveBeenCalledOnce()
-  })
-})
-
-describe('ReviewNav', () => {
-  it('draws the change request glyph at the size the sidebar asks for', () => {
-    const owner = { size: 20, active: true }
-    const view = render(<ReviewNavIcon {...owner as PropsRuntime<'sidebar.panellist'>} />)
-    expect(view.container.querySelector('svg')?.getAttribute('width')).toBe('20')
-    expect(view.container.querySelector('[data-forge-glyph]')?.getAttribute('data-tone')).toBe('open')
-  })
-
-  it('counts the requests that ask for the user\'s review, at most 99 spelled out, and nothing before a count or at zero', () => {
-    const count = createSnapshotStore<StreamSnapshot<number | null>>({ state: null, disconnected: false })
-    const props = { useCount: bindSnapshotSelector(count), wide: false, active: false, t }
-    const view = render(<ReviewNavCount {...props as ReviewNavCountProps} />)
-    expect(view.container.textContent).toBe('')
-    act(() => { count.set({ state: 0, disconnected: false }) })
-    expect(view.container.textContent).toBe('')
-    act(() => { count.set({ state: 7, disconnected: false }) })
-    expect(view.container.textContent).toBe('77 change requests await your review')
-    expect(view.container.querySelector('[data-wide]')).toBeNull()
-    act(() => { count.set({ state: 120, disconnected: false }) })
-    view.rerender(<ReviewNavCount {...{ ...props, wide: true } as ReviewNavCountProps} />)
-    expect(view.container.querySelector('[aria-hidden="true"]')?.textContent).toBe('99+')
-    expect(view.container.querySelector('[data-wide]')).not.toBeNull()
-    expect(screen.getByText('120 change requests await your review')).toBeTruthy()
   })
 })
 

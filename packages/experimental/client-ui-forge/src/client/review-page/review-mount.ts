@@ -1,5 +1,5 @@
 /**
- * Registrations of the review page: its navigation row and count, its page, and the actions and reads its views call
+ * Registrations of the review page: its page, and the actions and reads its views call
  * through the forge panel Remote's review methods, which name a change request by URL and need no Session.
  */
 
@@ -20,13 +20,11 @@ import { actionReporter } from '../action-notices.ts'
 import { NS } from '../locales.ts'
 import { ReviewQueue } from '../review-queue.ts'
 import { createReviewStore } from './review-store.ts'
-import { ReviewNavCount, ReviewNavIcon, type ReviewNavCountInjected } from './ReviewNav.tsx'
 import { ReviewConversation, type ReviewChatFace } from './ReviewChat.tsx'
 import { ReviewPage, type ReviewChangesFace, type ReviewPageInjected } from './ReviewPage.tsx'
-import { createStreamSource, type NoticeSource } from '../source.ts'
+import type { NoticeSource } from '../source.ts'
 import type { ChangeRequestEntry } from '../status.ts'
 import { ViewedFiles } from '../viewed-files.ts'
-import type { ForgeReviewCountFrame } from '../../types.ts'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
@@ -181,11 +179,6 @@ export function registerReviewPage(ctx: Context, deps: ReviewPageDeps): void {
       void remote.requestWorktree(sessionId, null, null).then(result => settled(result, 'toast.worktreeFailed'))
     },
   }
-  const count = createStreamSource<ForgeReviewCountFrame, number | null>({
-    open: signal => remote.reviewCount(signal),
-    subscribeReset,
-  }, null, (_previous, frame) => frame.reviewRequested)
-  ctx.effect(() => () => { count.close() }, 'forge-panel: review count')
   ctx.effect(() => ctx.remoteAccess.whenAccess('forgePanel/reviewLists', function* () {
     yield ctx.slots.inject('main', () => ctx.slots.register({
       name: 'main',
@@ -214,12 +207,5 @@ export function registerReviewPage(ctx: Context, deps: ReviewPageDeps): void {
     yield ctx.slots.inject('forge.review.conversation', () => ctx.slots.register({
       name: 'forge.review.conversation', locale: NS,
     }, ReviewConversation))
-    yield ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-      name: 'sidebar.panellist', id: REVIEW_PANEL, order: 20, locale: NS, label: () => t('reviewPage.panel'),
-    }, ReviewNavIcon))
-    yield ctx.slots.inject('sidebar.panellist.trailing', () => ctx.slots.register({
-      name: 'sidebar.panellist.trailing', id: REVIEW_PANEL, locale: NS,
-      inject: (): ReviewNavCountInjected => ({ hooks: { count: count.observable } }),
-    }, ReviewNavCount))
   }), 'forge-panel: review page')
 }

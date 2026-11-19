@@ -837,25 +837,6 @@
   display: inline-flex;
 }
 
-.navCount {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.navCount:not([data-wide]) {
-  display: inline-block;
-  min-width: 14px;
-  padding: 0 3px;
-  border-radius: 999px;
-  corner-shape: round;
-  background: var(--dsw-alias-state-business-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-  font-size: 10px;
-  line-height: 14px;
-  text-align: center;
-}
-
 .visuallyHidden {
   position: absolute;
   width: 1px;

@@ -11,7 +11,6 @@ import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runt
 import type { QuoteSummary } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SidebarRightTabDefinition, TabId } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
-import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   ChangeRequestDescription, ChangeRequestReviewer, ChangeRequestSnapshot, ForgeCommitList, ForgeRerunRequest, ForgeReviewData,
   ForgeReviewerCandidate, ForgeReviewRequest, ForgeReviewResult, ForgeReviewWrite, ForgeReviewWriteResult, ForgeThreadId, ForgeViewedFiles,
@@ -40,7 +39,6 @@ import type { NoticeSource } from '../src/client/source.ts'
 import type { ReviewSelection } from '../src/client/review.ts'
 import { REVIEW_PANEL } from '../src/client/review-page/review-mount.ts'
 import { ReviewConversation } from '../src/client/review-page/ReviewChat.tsx'
-import { ReviewNavCount, ReviewNavIcon, type ReviewNavCountInjected } from '../src/client/review-page/ReviewNav.tsx'
 import { ReviewPage, type ReviewPageInjected } from '../src/client/review-page/ReviewPage.tsx'
 import { reviewThread } from './thread-fixtures.client.ts'
 import { WorktreeProgress, type WorktreeProgressInjected } from '../src/client/WorktreeProgress.tsx'
@@ -51,7 +49,7 @@ import type { WorktreeCleanup } from '@deepseek-ai/dsh-experimental-worktree/typ
 import type {
   ForgeBaseBranches, ForgeChangeRequestDiff, ForgeChangeRequestStatesFrame, ForgeExtensionState, ForgeLensFrame,
   ForgeLensRequest,
-  ForgeCommitRange, ForgeLocalCommits, ForgeLocalDiff, ForgeLocalScope, ForgePanelState, ForgeReviewChangeRequest, ForgeReviewCountFrame,
+  ForgeCommitRange, ForgeLocalCommits, ForgeLocalDiff, ForgeLocalScope, ForgePanelState, ForgeReviewChangeRequest,
   ForgeReviewFrame, ForgeWorktreeBases,
 } from '../src/types.ts'
 import { entry, listState, ready, snapshot, unserved } from './client-fixtures.client.ts'
@@ -162,10 +160,6 @@ function isReviewPageFace(value: Record<string, unknown>): value is Record<strin
   return typeof value.openLists === 'function' && typeof value.actionsFor === 'function'
 }
 
-function isReviewCountFace(value: Record<string, unknown>): value is Record<string, unknown> & ReviewNavCountInjected {
-  return typeof value.hooks === 'object' && value.hooks !== null && 'count' in value.hooks
-}
-
 /** Let the Remote results that the actions await settle. */
 async function settle(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0))
@@ -191,7 +185,6 @@ async function base() {
   const streams: ReturnType<typeof stream>[] = []
   const stateStreams: ReturnType<typeof stream<ForgeChangeRequestStatesFrame>>[] = []
   const extensionStreams: ReturnType<typeof stream<ForgeExtensionState>>[] = []
-  const countStreams: ReturnType<typeof stream<ForgeReviewCountFrame>>[] = []
   const forgePanel = {
     follow: vi.fn((_sessionId: SessionId, signal: AbortSignal) => {
       const handle = stream(signal)
@@ -262,11 +255,6 @@ async function base() {
     reviewLists: vi.fn((_repository: { readonly owner: string; readonly name: string } | null, signal: AbortSignal) =>
       stream<ForgeReviewFrame>(signal)),
     reviewChangeRequest: vi.fn((_url: string, signal: AbortSignal) => stream<ForgeReviewChangeRequest>(signal)),
-    reviewCount: vi.fn((signal: AbortSignal) => {
-      const handle = stream<ForgeReviewCountFrame>(signal)
-      countStreams.push(handle)
-      return handle
-    }),
     reviewRefresh: vi.fn(async (): Promise<RemoteResult<void>> => OK),
     reviewDescription: vi.fn(async (_url: string, _signal: AbortSignal): Read<ChangeRequestDescription> =>
       ({ ok: true, value: description('Body') })),
@@ -357,7 +345,7 @@ async function base() {
     },
   } as never, () => null)
   return {
-    ctx, remote, unmount, streams, stateStreams, extensionStreams, countStreams, forgePanel, sidebarRightTabs, unregisterTab, sidebarRight,
+    ctx, remote, unmount, streams, stateStreams, extensionStreams, forgePanel, sidebarRightTabs, unregisterTab, sidebarRight,
     sessions, scopes, worktreeForm, remoteAccess, workspaces, uiWorkspace,
   }
 }
@@ -1452,59 +1440,31 @@ describe('mountForgePanel review page', () => {
     return value
   }
 
-  it('registers the page, its navigation row and count, and its conversation while the Peer may read the review lists', async () => {
+  it('registers the page and its conversation, and no sidebar row, while the Peer may read the review lists', async () => {
     const f = await fixture()
     expect(f.remoteAccess.whenAccess).toHaveBeenCalledWith('forgePanel/reviewLists', expect.any(Function))
     expect(f.entry('main', ReviewPage)).toMatchObject({ options: { key: REVIEW_PANEL }, locale: NS })
     expect(f.entry('main', ReviewPage)?.store).toBeDefined()
     expect(f.entry('main', ReviewPage)?.children).toEqual({ 'forge.review.conversation': { kind: 'single', scope: 'session' } })
-    const row = f.entry('sidebar.panellist', ReviewNavIcon)
-    expect(row).toMatchObject({ options: { id: REVIEW_PANEL, order: 20 }, locale: NS })
-    expect([en['reviewPage.panel'], zh['reviewPage.panel']]).toContain(resolveSlotLabel(row?.options.label))
-    expect(f.entry('sidebar.panellist.trailing', ReviewNavCount)).toMatchObject({ options: { id: REVIEW_PANEL }, locale: NS })
+    expect(f.ctx.slots.entries('sidebar.panellist').some(item => item.options.id === REVIEW_PANEL)).toBe(false)
+    expect(f.ctx.slots.entries('sidebar.panellist.trailing').some(item => item.options.id === REVIEW_PANEL)).toBe(false)
     expect(f.entry('forge.review.conversation', ReviewConversation)).toMatchObject({ locale: NS })
     await f.dispose()
   })
 
-  it('withdraws the page, its navigation row and count, and its conversation, and closes the count, with its fiber', async () => {
+  it('withdraws the page and its conversation with its fiber', async () => {
     const b = await base()
     const fiber = b.ctx.plugin({ inject: [...inject], apply: (plugin: Context) => mountForgePanel(plugin, REMOTE) })
     await fiber
     const registered = (): boolean[] => [
       b.ctx.slots.entries('main').some(item => item.component === ReviewPage),
-      b.ctx.slots.entries('sidebar.panellist').some(item => item.component === ReviewNavIcon),
-      b.ctx.slots.entries('sidebar.panellist.trailing').some(item => item.component === ReviewNavCount),
       b.ctx.slots.entries('forge.review.conversation').some(item => item.component === ReviewConversation),
     ]
-    expect(registered()).toEqual([true, true, true, true])
-    const count = b.ctx.slots.entries('sidebar.panellist.trailing').find(item => item.component === ReviewNavCount)?.inject?.()
-    assert(count !== undefined && isReviewCountFace(count))
-    count.hooks.count.subscribe(() => {})
-    expect(b.countStreams).toHaveLength(1)
+    expect(registered()).toEqual([true, true])
 
     await fiber.dispose()
 
-    expect(registered()).toEqual([false, false, false, false])
-    expect(b.countStreams[0]?.disposed).toHaveBeenCalled()
-    expect(b.countStreams[0]?.signal.aborted).toBe(true)
-  })
-
-  it('streams the number of requests for the user\'s review while the row reads it, again after a reconnect', async () => {
-    const f = await fixture()
-    const count = f.entry('sidebar.panellist.trailing', ReviewNavCount)?.inject?.()
-    assert(count !== undefined && isReviewCountFace(count))
-    const { hooks } = count
-    expect(hooks.count.getSnapshot().state).toBeNull()
-    const stop = hooks.count.subscribe(() => {})
-    f.countStreams[0]?.push({ reviewRequested: 3 })
-    await settle()
-    expect(hooks.count.getSnapshot()).toEqual({ state: 3, disconnected: false })
-    f.ctx.emit('connection/reset')
-    expect(f.countStreams).toHaveLength(2)
-    expect(f.countStreams[0]?.disposed).toHaveBeenCalled()
-    stop()
-    expect(f.countStreams[1]?.disposed).toHaveBeenCalled()
-    await f.dispose()
+    expect(registered()).toEqual([false, false])
   })
 
   it('reads the lists of every repository or one, the change request, and its description through the Remote', async () => {

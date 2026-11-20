@@ -192,6 +192,26 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('collapses every workspace when one is expanded, then expands them all again', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('workspace')
+    store.actions.setGroupExpanded('alpha', true)
+    store.actions.setGroupExpanded('beta', false)
+    mount({
+      useSessions: hook(sessionState([summary('session-one', 10)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['session-one']), workspace('beta', [])])),
+      useStore: bindSnapshotSelector(store),
+      actions: store.actions,
+    })
+    const toggle = () => screen.getByRole('button', { name: /全部折叠|全部展开/ })
+    expect(toggle().getAttribute('aria-label')).toBe('全部折叠')
+    fireEvent.click(toggle())
+    expect(store.getSnapshot().groupExpansion).toMatchObject({ alpha: false, beta: false })
+    expect(toggle().getAttribute('aria-label')).toBe('全部展开')
+    fireEvent.click(toggle())
+    expect(store.getSnapshot().groupExpansion).toMatchObject({ alpha: true, beta: true })
+  })
+
   it('binds the list area as the section scroller only while the sidebar is wide', () => {
     const bindScrollerRef = vi.fn()
     const browser = mount({ useSectionScroller: () => ({ bindScrollerRef }) })

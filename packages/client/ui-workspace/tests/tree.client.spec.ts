@@ -576,6 +576,44 @@ describe('deriveGroups', () => {
     ])
   })
 
+  it('reports the strongest status of a folded group: feedback, then running, then unread done', () => {
+    const running = summary('running', 1)
+    const waiting = summary('waiting', 2)
+    const archivedWaiting = summary('archived', 3)
+    const quiet = summary('quiet', 4)
+    const groupOf = (...ids: string[]) => workspace('project', ids)
+    const statuses: SessionStatusSnapshot = new Map([
+      [running.id, status(undefined, { running: true })],
+      [waiting.id, status({ kind: 'approval' } as SessionPendingInteraction)],
+      [archivedWaiting.id, status({ kind: 'approval' } as SessionPendingInteraction)],
+    ])
+    const sessions = list(running, quiet)
+    const [onlyRunning] = deriveGroups(sessions, [groupOf(running.id, quiet.id)], noRows, statuses, view())
+    expect(onlyRunning!.expanded).toBe(false)
+    expect(onlyRunning!.sessions).toEqual([])
+    expect(onlyRunning!.activity).toBe('running')
+    const both = list(running, waiting)
+    const [feedback] = deriveGroups(both, [groupOf(running.id, waiting.id)], noRows, statuses, view())
+    expect(feedback!.activity).toBe('waiting')
+    const finished = summary('finished', 5)
+    const unread: SessionStatusSnapshot = new Map([[finished.id, status(undefined, { completionUnread: true })]])
+    const [done] = deriveGroups(list(finished), [groupOf(finished.id)], noRows, unread, view())
+    expect(done!.activity).toBe('done')
+    const [read] = deriveGroups(list(finished), [groupOf(finished.id)], noRows, noAttention, view())
+    expect(read!.activity).toBeUndefined()
+    const archivedOnly = list(archivedWaiting, quiet)
+    const [hidden] = deriveGroups(
+      archivedOnly,
+      [groupOf(archivedWaiting.id, quiet.id)],
+      rowState({ archived: [archivedWaiting.id] }),
+      statuses,
+      view(),
+    )
+    expect(hidden!.activity).toBeUndefined()
+    const [idle] = deriveGroups(list(quiet), [groupOf(quiet.id)], noRows, noAttention, view())
+    expect(idle!.activity).toBeUndefined()
+  })
+
   it('marks selected Workspace and Ungrouped sessions without relying on an Intent', () => {
     const owned = summary('owned', 1)
     const loose = summary('loose', 2)

@@ -85,9 +85,18 @@ export interface GroupNode {
   expanded: boolean
   /** The group contains the selected session (active folder tint; supplied here so the renderer never scans). */
   containsCurrent: boolean
+  /**
+   * Strongest status across every non-archived Session in the group, including
+   * folded ones: `waiting` for user feedback, `running` while active, `done`
+   * for an unread completion, absent otherwise.
+   */
+  activity: GroupActivity | undefined
   /** Visible session rows (empty while the group is folded). */
   sessions: readonly SessionNode[]
 }
+
+/** Folder-level status: user feedback outranks running, which outranks an unread completion. */
+export type GroupActivity = 'waiting' | 'running' | 'done'
 
 /** One flat search row combining list metadata with an optional content match. */
 export interface SearchResultNode {
@@ -460,6 +469,7 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
+      activity: groupActivity(g.sessions, statuses, archived),
       sessions: expanded
         ? sectionMembers(g.sessions, pinned, archived)
           .map(session => sessionNode(session, list, statuses, pinned, archived))
@@ -467,6 +477,34 @@ export function deriveGroups(
     })
   }
   return groups
+}
+
+/**
+ * Strongest live status of a group's non-archived Sessions, derived from the
+ * same status source as the Session rows so a folded group still reports it.
+ * Priority: waiting for the user, then running, then a completion the user has
+ * not read yet. Once every completion is read the group reports nothing.
+ * @param sessions - every Session summary in the group.
+ * @param statuses - live status map keyed by Session id.
+ * @param archived - archived Session ids, excluded from the signal.
+ * @returns the strongest activity, or undefined when the group is quiet.
+ */
+function groupActivity(
+  sessions: readonly SessionSummary[],
+  statuses: SessionStatuses,
+  archived: ReadonlySet<SessionId>,
+): GroupActivity | undefined {
+  let running = false
+  let unread = false
+  for (const s of sessions) {
+    if (archived.has(s.id)) continue
+    const status = statuses.get(s.id)
+    if (visiblePendingKind(status?.pendingInteraction?.kind) !== undefined) return 'waiting'
+    if (status?.running ?? s.running) running = true
+    if (status?.completionUnread === true) unread = true
+  }
+  if (running) return 'running'
+  return unread ? 'done' : undefined
 }
 
 /**

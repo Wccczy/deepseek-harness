@@ -137,12 +137,13 @@
   padding-left: 0;
 }
 
+/* Three 28px icon buttons plus two 4px gaps: filter, collapse-all, add. */
 .headerActions {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  max-width: 92px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;

@@ -215,6 +215,25 @@ interface DragState {
 }
 
 /** Apply a visible drop to the complete account without removing hidden members. */
+/**
+ * Parent Workspace key of each Workspace under nesting, shared by the tree and the header toggle.
+ * @param nestWorkspaces - whether nested Workspaces form a hierarchy.
+ * @param workspaces - Workspace views.
+ * @returns a map from Workspace id to its parent Workspace id, empty without nesting.
+ */
+function workspaceParents(
+  nestWorkspaces: boolean,
+  workspaces: readonly WorkspaceView[],
+): Map<string, WorkspaceId | undefined> {
+  if (!nestWorkspaces) return new Map<string, WorkspaceId | undefined>()
+  const keysByPath = new Map(workspaces.map(workspace => [workspace.path, workspace.workspaceId]))
+  const paths = [...keysByPath.keys()]
+  return new Map<string, WorkspaceId | undefined>(workspaces.map((workspace) => {
+    const path = owningParentFolder(workspace.path, paths)
+    return [workspace.workspaceId, path === undefined ? undefined : keysByPath.get(path)]
+  }))
+}
+
 function sessionDragOrder(
   order: readonly SessionId[],
   rows: readonly SessionNode[],
@@ -348,15 +367,7 @@ function SessionTree({
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
     setGroupExpanded(currentGroup, true)
   }, [current, currentGroup, setGroupExpanded, groupExpansion])
-  const parents = useMemo(() => {
-    if (!nestWorkspaces) return new Map<string, WorkspaceId | undefined>()
-    const keysByPath = new Map(workspaces.map(workspace => [workspace.path, workspace.workspaceId]))
-    const paths = [...keysByPath.keys()]
-    return new Map<string, WorkspaceId | undefined>(workspaces.map((workspace) => {
-      const path = owningParentFolder(workspace.path, paths)
-      return [workspace.workspaceId, path === undefined ? undefined : keysByPath.get(path)]
-    }))
-  }, [nestWorkspaces, workspaces])
+  const parents = useMemo(() => workspaceParents(nestWorkspaces, workspaces), [nestWorkspaces, workspaces])
   const currentAncestors = useMemo(() => {
     const keys = new Set<string>()
     for (let key = currentGroup === undefined ? undefined : parents.get(currentGroup); key !== undefined; key = parents.get(key)) {
@@ -1228,6 +1239,11 @@ export function WorkspaceBrowser({
       console.warn('session unarchive rejected:', reason)
     })
   }
+  // Same rule as the tree's `expandedGroups`: an explicit flag wins, else a group is open only as an ancestor.
+  const headerParents = useMemo(() => workspaceParents(groupBy === 'workspace-tree', storedWorkspaces), [groupBy, storedWorkspaces])
+  const headerParentKeys = useMemo(() => new Set<string | undefined>(headerParents.values()), [headerParents])
+  const groupKeys = useMemo(() => [...storedWorkspaces.map(workspace => workspace.workspaceId), UNGROUPED_KEY], [storedWorkspaces])
+  const anyGroupExpanded = groupKeys.some(key => groupExpansion[key] ?? headerParentKeys.has(key))
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
       <div className={clsx(css.sectionHeader, wide && searchSpacingMotionEnabled && css.searchSpacingMotion)} data-sidebar-workspace-header="">
@@ -1294,6 +1310,21 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
+          {wide && groupBy !== 'flat' && groupKeys.length > 0 && (
+            <Tooltip label={anyGroupExpanded ? t('workspace.collapseAll') : t('workspace.expandAll')} side="bottom" delayMs={500} portal>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={anyGroupExpanded ? t('workspace.collapseAll') : t('workspace.expandAll')}
+                aria-expanded={anyGroupExpanded}
+                onClick={() => {
+                  for (const key of groupKeys) actions.setGroupExpanded(key, !anyGroupExpanded)
+                }}
+              >
+                <IconChevronsUpDownOutlineRegular size={16} />
+              </button>
+            </Tooltip>
+          )}
           {wide && (
             <ViewOptionsMenu
               groupBy={groupBy}

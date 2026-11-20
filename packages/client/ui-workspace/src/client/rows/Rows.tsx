@@ -23,7 +23,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionDragType, WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import type { GroupActivity, GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import css from './Rows.module.css'
 
 /** Sidebar-owned layout values needed by row copies mounted outside the sidebar. */
@@ -131,6 +131,13 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+/** Accessible label for each folder activity state. */
+const ACTIVITY_LABEL: Record<GroupActivity, (t: RowTranslate) => string> = {
+  waiting: t => t('group.activity.waiting'),
+  running: t => t('group.activity.running'),
+  done: t => t('group.activity.done'),
+}
+
 /** Owner props of one Workspace header row; the access Hooks are the browser root's own standard seats. */
 type ProjectRowItemProps = {
   group: GroupNode
@@ -225,6 +232,13 @@ function ProjectRow({
         }}
       onDragEnd={() => { if (dragPreview.clear()) drag?.end() }}
     >
+      <span className={css.activity}>
+        {row.activity !== undefined && (
+          <span className={clsx(css.activityDot, css[row.activity])} data-activity={row.activity}>
+            <span className={css.visuallyHidden}>{ACTIVITY_LABEL[row.activity](t)}</span>
+          </span>
+        )}
+      </span>
       <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
         {row.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
       </span>

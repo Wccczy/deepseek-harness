@@ -152,6 +152,28 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Activity cell to the left of the folder: fixed width so rows stay aligned when idle. */
+.activity {
+  flex: none;
+  width: 10px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* Solid 6px dots: blue while running, green when done, amber when awaiting the user. */
+.activityDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.running { background: var(--dsw-alias-state-business-primary); }
+.done { background: var(--dsw-alias-state-success-primary); }
+.waiting { background: var(--dsw-alias-state-warn-primary); }
+
 
 /* Project leading slot: folder by default, expand arrow on row hover. */
 .projectRow .chevron { display: none; }

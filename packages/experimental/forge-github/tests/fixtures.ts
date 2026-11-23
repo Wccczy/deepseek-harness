@@ -1,4 +1,5 @@
 import type { ChangeRequestRef, ForgeRepository } from '@deepseek-ai/dsh-experimental-forge'
+import type { GhCall, GhOutput, GhRunner } from '../src/gh.ts'
 
 /** Repository on github.com used across the provider tests. */
 export const demo: ForgeRepository = { forge: 'github', host: 'github.com', owner: 'octo', name: 'demo' }
@@ -6,6 +7,32 @@ export const demo: ForgeRepository = { forge: 'github', host: 'github.com', owne
 /** Build a pull request reference in `demo` or another repository. */
 export function pull(number: number, repository: ForgeRepository = demo): ChangeRequestRef {
   return { repository, number }
+}
+
+/** One recorded `gh` invocation: its arguments and the account and input it selected. */
+export interface GhCallRecord {
+  /** Arguments passed to `gh`. */
+  readonly args: readonly string[]
+  /** Standard input and account selection, undefined when the invocation named neither. */
+  readonly call: GhCall | undefined
+}
+
+/**
+ * A `gh` runner that records every invocation and answers through `handler`.
+ * @param handler - answers one invocation from its arguments and account selection.
+ * @returns the runner, and the invocations it recorded in order.
+ */
+export function recordingGh(
+  handler: (args: readonly string[], call: GhCall | undefined) => GhOutput | Promise<GhOutput>,
+): { readonly run: GhRunner; readonly calls: GhCallRecord[] } {
+  const calls: GhCallRecord[] = []
+  return {
+    calls,
+    run: async (args, _signal, call) => {
+      calls.push({ args: [...args], call })
+      return await handler(args, call)
+    },
+  }
 }
 
 /** One CheckRun context node as GitHub returns it. */

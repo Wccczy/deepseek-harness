@@ -24,14 +24,14 @@ describe('review submission', () => {
     expect(await provider.submitReview(ref, single, signal)).toMatchObject({ ok: true })
     expect(gh.mock.calls[1]).toEqual([
       ['api', '--hostname', 'github.com', '--method', 'POST', 'repos/octo/demo/pulls/7/comments', '--input', '-'], signal,
-      JSON.stringify({ commit_id: head, path: comment.path, side: 'LEFT', line: 5, body: comment.body, start_line: 3, start_side: 'LEFT' }),
+      { input: JSON.stringify({ commit_id: head, path: comment.path, side: 'LEFT', line: 5, body: comment.body, start_line: 3, start_side: 'LEFT' }) },
     ])
   })
   it.each(['comment', 'approve', 'request-changes'] as const)('sends one %s review containing all pending comments', async (event) => {
     const { gh, provider, signal } = fixture()
     await provider.submitReview(ref, { kind: 'review', headSha: head, event, body: 'Summary', comments: [comment, { ...comment, side: 'R', startLine: 5 }] }, signal)
     expect(gh).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(gh.mock.calls[1]?.[2] ?? '')).toEqual({ commit_id: head, event: { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' }[event], body: 'Summary', comments: [
+    expect(JSON.parse(gh.mock.calls[1]?.[2]?.input ?? '')).toEqual({ commit_id: head, event: { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' }[event], body: 'Summary', comments: [
       { path: comment.path, side: 'LEFT', line: 5, body: comment.body, start_line: 3, start_side: 'LEFT' },
       { path: comment.path, side: 'RIGHT', line: 5, body: comment.body },
     ] })

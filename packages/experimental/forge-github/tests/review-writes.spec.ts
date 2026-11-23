@@ -42,9 +42,9 @@ interface Thrown { readonly throws: unknown }
 function fakeGh(check: GhOutput, ...mutations: Array<GhOutput | Thrown>): { run: GhRunner; calls: Call[] } {
   const calls: Call[] = []
   const queue = [...mutations]
-  return { calls, run: async (args, _signal, input) => {
-    calls.push({ args: [...args], input: input === undefined ? undefined : JSON.parse(input) as Call['input'] })
-    if (input === undefined) return check
+  return { calls, run: async (args, _signal, call) => {
+    calls.push({ args: [...args], input: call?.input === undefined ? undefined : JSON.parse(call.input) as Call['input'] })
+    if (call?.input === undefined) return check
     const next = queue.shift()
     if (next === undefined) throw new Error(`unexpected gh ${args.join(' ')}`)
     if ('throws' in next) throw next.throws

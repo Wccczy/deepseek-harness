@@ -45,7 +45,7 @@ export async function submitGitHubReview(
       ? { commit_id: request.headSha, ...inline(request.comment) }
       : { commit_id: request.headSha, event: EVENTS[request.event], body: request.body, comments: request.comments.map(inline) }
     writing = true
-    const output = await gh(['api', '--hostname', host, '--method', 'POST', `${endpoint}/${request.kind === 'comment' ? 'comments' : 'reviews'}`, '--input', '-'], signal, JSON.stringify(body))
+    const output = await gh(['api', '--hostname', host, '--method', 'POST', `${endpoint}/${request.kind === 'comment' ? 'comments' : 'reviews'}`, '--input', '-'], signal, { input: JSON.stringify(body) })
     if (output.exitCode !== 0) return failed(output, true)
     const result = receipt.parse(JSON.parse(output.stdout))
     const url = new URL(result.html_url)

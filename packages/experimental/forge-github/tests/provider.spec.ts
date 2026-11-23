@@ -873,10 +873,10 @@ describe('GitHub provider overview and viewed marks', () => {
   ) {
     const inputs: unknown[] = []
     const calls: string[][] = []
-    const run: GhRunner = async (args, _signal, input) => {
+    const run: GhRunner = async (args, _signal, call) => {
       calls.push([...args])
       if (args.includes('--input')) {
-        const body = JSON.parse(input ?? '') as { query: string; variables: unknown }
+        const body = JSON.parse(call?.input ?? '') as { query: string; variables: unknown }
         inputs.push(body)
         return write(body)
       }

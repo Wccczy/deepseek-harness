@@ -13,8 +13,16 @@ export interface GhOutput {
   readonly stderr: string
 }
 
+/** One `gh` invocation's standard input and account selection. */
+export interface GhCall {
+  /** Standard input, or omitted for none. */
+  readonly input?: string
+  /** `GH_CONFIG_DIR` for this invocation, overriding the inherited one. */
+  readonly ghConfigDir?: string
+}
+
 /** Runs `gh` with literal arguments; rejects when the process cannot run to an exit code. */
-export type GhRunner = (args: readonly string[], signal: AbortSignal, input?: string) => Promise<GhOutput>
+export type GhRunner = (args: readonly string[], signal: AbortSignal, call?: GhCall) => Promise<GhOutput>
 
 /** Resolved executable and limits for `gh`. */
 export interface GhConfig {
@@ -45,16 +53,21 @@ export class GhOutputLimitError extends Error {
  * Build a runner for `gh` on the host. The child inherits the scrubbed parent
  * environment, so variables whose names contain KEY, PASSWORD, SECRET, or
  * TOKEN never reach it and `gh` authenticates from its own credential store.
- * Prompts, update notices, pagers, and colors are disabled.
+ * A call that names a `GH_CONFIG_DIR` reads that directory's account instead of
+ * the inherited one; no other variable is added. Prompts, update notices,
+ * pagers, and colors are disabled.
  * @param config - executable and limits.
  * @returns the runner.
  */
 export function ghRunner(config: GhConfig): GhRunner {
-  return async (args, signal, input) => {
+  return async (args, signal, call) => {
     const result = await execa(config.ghCommand, args, {
-      env: { ...scrubbedParentEnv(), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_PAGER: '', NO_COLOR: '1', CLICOLOR: '0' },
+      env: {
+        ...scrubbedParentEnv(), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_PAGER: '', NO_COLOR: '1', CLICOLOR: '0',
+        ...call?.ghConfigDir === undefined ? {} : { GH_CONFIG_DIR: call.ghConfigDir },
+      },
       extendEnv: false,
-      ...input === undefined ? { stdin: 'ignore' as const } : { input },
+      ...call?.input === undefined ? { stdin: 'ignore' as const } : { input: call.input },
       reject: false,
       timeout: config.timeoutMs,
       cancelSignal: signal,

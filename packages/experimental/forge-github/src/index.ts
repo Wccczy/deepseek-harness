@@ -10,10 +10,12 @@ import type {} from '@deepseek-ai/dsh-experimental-forge-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { GH_COMMANDS } from './commands.ts'
 import { ghRunner } from './gh.ts'
-import { GitHubProvider } from './provider.ts'
+import { GitHubProvider, type AccountRoute } from './provider.ts'
 
 export const name = 'forge-github'
 export const inject = ['forge']
+
+export type { AccountRoute } from './provider.ts'
 
 /** GitHub CLI executable, served hosts, and invocation limits. */
 export interface Config {
@@ -43,6 +45,13 @@ export interface Config {
   maxViewedFiles?: number
   /** Most pull requests one viewer list read returns, at most 100, the size of one GitHub search page. */
   maxViewerItems?: number
+  /**
+   * `gh` accounts of one owner's repositories. A route whose `owner` equals the repository owner without case, and
+   * whose `host`, when given, equals the repository host without case, selects the `GH_CONFIG_DIR` of every call about
+   * that repository; an exact host match wins over a route without `host`, which applies to every configured host. A
+   * repository no route matches keeps the inherited environment.
+   */
+  accounts?: AccountRoute[]
 }
 
 export const Config: z<Config> = z.object({
@@ -56,12 +65,20 @@ export const Config: z<Config> = z.object({
   maxCommits: z.number().default(250),
   maxViewedFiles: z.number().default(3_000),
   maxViewerItems: z.number().default(50),
+  accounts: z.array(z.object({
+    owner: z.string().required(),
+    host: z.string(),
+    ghConfigDir: z.string().required(),
+  })).default([]),
 })
 
 /** Most results one GitHub search page returns. */
 const SEARCH_PAGE = 100
 
 const HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d+)?$/i
+
+/** Characters GitHub permits in an owner name. */
+const OWNER = /^[A-Za-z0-9][A-Za-z0-9-]*$/
 
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as Required<Config>
@@ -79,7 +96,20 @@ export function apply(ctx: Context, config: Config): void {
     if (!Number.isSafeInteger(resolved[key]) || resolved[key] <= 0) throw new Error(`forge-github: ${key} must be a positive safe integer`)
   }
   if (resolved.maxViewerItems > SEARCH_PAGE) throw new Error(`forge-github: maxViewerItems must be no greater than ${SEARCH_PAGE}`)
-  ctx.forge.register(new GitHubProvider(ghRunner(resolved), resolved.hosts, resolved))
+  const routed = new Set<string>()
+  for (const { owner, host, ghConfigDir } of resolved.accounts) {
+    if (!OWNER.test(owner)) throw new Error(`forge-github: invalid account owner ${JSON.stringify(owner)}`)
+    if (ghConfigDir.trim().length === 0) throw new Error(`forge-github: account for ${JSON.stringify(owner)} must set a ghConfigDir`)
+    if (host !== undefined && !resolved.hosts.some(served => served.toLowerCase() === host.toLowerCase())) {
+      throw new Error(`forge-github: account for ${JSON.stringify(owner)} names host ${JSON.stringify(host)}, which is not in hosts`)
+    }
+    const effective = `${owner.toLowerCase()}\n${host === undefined ? '' : host.toLowerCase()}`
+    if (routed.has(effective)) {
+      throw new Error(`forge-github: duplicate account for ${JSON.stringify(owner)}${host === undefined ? '' : ` on host ${JSON.stringify(host)}`}`)
+    }
+    routed.add(effective)
+  }
+  ctx.forge.register(new GitHubProvider(ghRunner(resolved), resolved.hosts, resolved, resolved.accounts))
   ctx.inject(['forgeSession'], (scope) => {
     scope.forgeSession.registerCommands(GH_COMMANDS)
   })

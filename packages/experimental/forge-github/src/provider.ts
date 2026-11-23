@@ -66,6 +66,16 @@ export interface GitHubLimits {
   readonly maxViewerItems: number
 }
 
+/** One `gh` account, and the repositories it reads. */
+export interface AccountRoute {
+  /** Repository owner whose calls use this account, compared without case. */
+  owner: string
+  /** Host this route applies to; omit to apply to every configured host. */
+  host?: string
+  /** `GH_CONFIG_DIR` for `gh` invocations on that owner's repositories. */
+  ghConfigDir: string
+}
+
 /** Reads GitHub and GitHub Enterprise pull requests through a `gh` runner. */
 export class GitHubProvider implements ForgeProvider {
   readonly forge = 'github'
@@ -74,13 +84,14 @@ export class GitHubProvider implements ForgeProvider {
   readonly changeRequestNoun = 'pull-request'
   readonly viewer: ForgeViewerCapability
   private readonly served: ReadonlySet<string>
+  private readonly accounts: readonly AccountRoute[]
   readonly snapshotBatchSize: number
   readonly briefBatchSize: number
 
   async submitReview(ref: ChangeRequestRef, request: ForgeReviewRequest, signal: AbortSignal): Promise<ForgeReviewResult> {
     const failure = this.hostFailure(ref.repository.host)
     if (failure !== undefined) return { ok: false, code: 'failed', message: failure.message }
-    return await submitGitHubReview(this.gh, ref, request, signal)
+    return await submitGitHubReview(this.runnerFor(this.accountOf(ref.repository)), ref, request, signal)
   }
 
   /**
@@ -91,7 +102,7 @@ export class GitHubProvider implements ForgeProvider {
     const failure = this.hostFailure(ref.repository.host)
     if (failure !== undefined) return failure
     if (!isCommit(headSha)) throw new Error(`forge-github: invalid head commit ${JSON.stringify(headSha)}`)
-    return await readReviewThreads(this.graphql, ref, headSha, this.limits, signal)
+    return await readReviewThreads(this.readerFor(this.accountOf(ref.repository)), ref, headSha, this.limits, signal)
   }
 
   /**
@@ -102,7 +113,8 @@ export class GitHubProvider implements ForgeProvider {
     const failure = this.hostFailure(ref.repository.host)
     if (failure !== undefined) return { ok: false, code: 'failed', message: failure.message }
     if (!isCommit(write.headSha)) throw new Error(`forge-github: invalid head commit ${JSON.stringify(write.headSha)}`)
-    return await writeGitHubReview(this.graphql, this.gh, ref, write, signal)
+    const ghConfigDir = this.accountOf(ref.repository)
+    return await writeGitHubReview(this.readerFor(ghConfigDir), this.runnerFor(ghConfigDir), ref, write, signal)
   }
 
   /**
@@ -110,10 +122,18 @@ export class GitHubProvider implements ForgeProvider {
    * @param hosts - host names this provider serves, such as `github.com` and Enterprise hosts.
    * @param limits - bounds on retained check and review bytes, counted and read review threads, pull requests per snapshot
    * query and per brief query, listed commits, listed viewed files, and listed viewer pull requests.
+   * @param accounts - `gh` accounts of one owner's repositories; a repository no route matches keeps the inherited
+   * `GH_CONFIG_DIR`.
    */
-  constructor(private readonly gh: GhRunner, hosts: readonly string[], private readonly limits: GitHubLimits) {
+  constructor(
+    private readonly gh: GhRunner,
+    hosts: readonly string[],
+    private readonly limits: GitHubLimits,
+    accounts: readonly AccountRoute[] = [],
+  ) {
     this.hosts = [...new Set(hosts.map(host => host.toLowerCase()))]
     this.served = new Set(this.hosts)
+    this.accounts = [...accounts]
     this.viewer = { hosts: this.hosts, filters: VIEWER_FILTERS, maxItems: limits.maxViewerItems }
     // One polling call of the registry then holds one query, which has the call's deadline to itself.
     this.snapshotBatchSize = limits.snapshotBatchSize
@@ -131,7 +151,7 @@ export class GitHubProvider implements ForgeProvider {
     if (!Number.isSafeInteger(query.limit) || query.limit <= 0 || query.limit > this.limits.maxViewerItems) {
       throw new Error(`forge-github: viewer list limit must be a positive integer no greater than ${this.limits.maxViewerItems}`)
     }
-    return await readViewerList(this.graphql, query, signal)
+    return await readViewerList(this.readerFor(undefined), query, signal)
   }
 
   /**
@@ -141,7 +161,7 @@ export class GitHubProvider implements ForgeProvider {
   async countForViewer(host: string, signal: AbortSignal): Promise<ReadonlyMap<ForgeViewerFilter, number> | ForgeFailure> {
     const failure = this.hostFailure(host)
     if (failure !== undefined) return failure
-    return await countViewerLists(this.graphql, host, signal)
+    return await countViewerLists(this.readerFor(undefined), host, signal)
   }
 
   /**
@@ -151,7 +171,7 @@ export class GitHubProvider implements ForgeProvider {
   async readDescription(ref: ChangeRequestRef, signal: AbortSignal): Promise<ChangeRequestDescription | ForgeFailure> {
     const failure = this.hostFailure(ref.repository.host)
     if (failure !== undefined) return failure
-    return await readDescription(this.graphql, ref, signal)
+    return await readDescription(this.readerFor(this.accountOf(ref.repository)), ref, signal)
   }
 
   repositoryFromRemote(url: string): ForgeRepository | undefined {
@@ -188,8 +208,8 @@ export class GitHubProvider implements ForgeProvider {
     const results = new Map<ChangeRequestKey, ChangeRequestSnapshot | ForgeFailure>()
     const { snapshotBatchSize, maxReviewThreads } = this.limits
     const queries = this.statusQueries(refs, results, snapshotBatchSize, chunk => snapshotQuery(chunk, maxReviewThreads))
-    for (const { host, query } of queries) {
-      for (const [key, result] of await this.fetchSnapshots(host, query, signal, false)) results.set(key, result)
+    for (const { host, ghConfigDir, query } of queries) {
+      for (const [key, result] of await this.fetchSnapshots(host, ghConfigDir, query, signal, false)) results.set(key, result)
     }
     return results
   }
@@ -209,8 +229,8 @@ export class GitHubProvider implements ForgeProvider {
     signal: AbortSignal,
   ): Promise<ReadonlyMap<ChangeRequestKey, ChangeRequestBrief | ForgeFailure>> {
     const results = new Map<ChangeRequestKey, ChangeRequestBrief | ForgeFailure>()
-    for (const { host, query } of this.statusQueries(refs, results, this.limits.briefBatchSize, briefQuery)) {
-      const output = await this.statusOutput(host, ['-f', `query=${query.document}`], signal)
+    for (const { host, ghConfigDir, query } of this.statusQueries(refs, results, this.limits.briefBatchSize, briefQuery)) {
+      const output = await this.statusOutput(host, ghConfigDir, ['-f', `query=${query.document}`], signal)
       let briefs: ReadonlyMap<ChangeRequestKey, ChangeRequestBrief | ForgeFailure>
       if ('stdout' in output) {
         const body = parseJson(output.stdout)
@@ -225,7 +245,9 @@ export class GitHubProvider implements ForgeProvider {
     const failure = this.hostFailure(ref.repository.host)
     if (failure !== undefined) return failure
     const query = snapshotQuery([ref], this.limits.maxReviewThreads)
-    const [result] = (await this.fetchSnapshots(ref.repository.host, query, signal, true)).values()
+    const [result] = (await this.fetchSnapshots(
+      ref.repository.host, this.accountOf(ref.repository), query, signal, true,
+    )).values()
     // oxlint-disable-next-line typescript/no-non-null-assertion -- a query returns one result for each of its pull requests.
     return result!
   }
@@ -233,7 +255,7 @@ export class GitHubProvider implements ForgeProvider {
   async findByHead(repository: ForgeRepository, branch: string, signal: AbortSignal): Promise<readonly ChangeRequestRef[]> {
     const failure = this.hostFailure(repository.host)
     if (failure !== undefined) throw new Error(failure.message)
-    const output = await this.gh([
+    const output = await this.runnerFor(this.accountOf(repository))([
       'api', 'graphql', '--hostname', repository.host,
       '-f', `query=${HEAD_QUERY}`, '-f', `owner=${repository.owner}`, '-f', `name=${repository.name}`, '-f', `branch=${branch}`,
     ], signal)
@@ -250,7 +272,9 @@ export class GitHubProvider implements ForgeProvider {
     const { host, owner, name } = checkedRepository(ref)
     const failure = this.hostFailure(host)
     if (failure !== undefined) return { code: 'failed', message: failure.message }
-    return await this.act(['pr', 'ready', String(ref.number), '--repo', `${host}/${owner}/${name}`], signal)
+    return await this.act(
+      ['pr', 'ready', String(ref.number), '--repo', `${host}/${owner}/${name}`], signal, this.accountOf(ref.repository),
+    )
   }
 
   /**
@@ -267,7 +291,7 @@ export class GitHubProvider implements ForgeProvider {
     return await this.act([
       'api', '--hostname', host, '--method', 'PUT', `repos/${owner}/${name}/pulls/${ref.number}/merge`,
       '-f', `merge_method=${request.method}`, '-f', `sha=${request.headSha}`,
-    ], signal)
+    ], signal, this.accountOf(ref.repository))
   }
 
   /**
@@ -286,8 +310,9 @@ export class GitHubProvider implements ForgeProvider {
     if (failure !== undefined) return failure
     if (!isCommit(headSha)) throw new Error(`forge-github: invalid head commit ${JSON.stringify(headSha)}`)
     if (base !== undefined && !isCommit(base)) throw new Error(`forge-github: invalid base commit ${JSON.stringify(base)}`)
+    const ghConfigDir = this.accountOf(ref.repository)
     const compare = async (from: string, operation: AbortSignal): Promise<string | ForgeFailure> =>
-      await readComparison(async (args, inner) => await this.read(args, inner), ref.repository, from, headSha, operation)
+      await readComparison(async (args, inner) => await this.read(args, inner, ghConfigDir), ref.repository, from, headSha, operation)
     const speculation = new AbortController()
     const early = base === undefined ? undefined : { base, patch: compare(base, AbortSignal.any([signal, speculation.signal])) }
     // The early comparison is observed here, so a cancelled or unused one never rejects unhandled.
@@ -300,7 +325,7 @@ export class GitHubProvider implements ForgeProvider {
       const output = await this.read([
         'api', 'graphql', '--hostname', host,
         '-f', `query=${PULL_REQUEST_COMMITS_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${ref.number}`,
-      ], signal)
+      ], signal, ghConfigDir)
       if (typeof output !== 'string') return output
       const commits = mapPullRequestCommitsResponse(parseJson(output))
       if (commits === undefined) return { code: 'unavailable', message: 'unexpected GitHub response to the pull request commit read' }
@@ -324,7 +349,7 @@ export class GitHubProvider implements ForgeProvider {
     return await this.read([
       'api', '--hostname', host, '-H', 'Accept: application/vnd.github.raw+json',
       `repos/${owner}/${name}/contents/${encodedPath(path)}?ref=${commit}`,
-    ], signal)
+    ], signal, this.accountOf(ref.repository))
   }
 
   /** List the pull request's commits through GraphQL, at most `maxCommits`, all read at one head. */
@@ -332,14 +357,17 @@ export class GitHubProvider implements ForgeProvider {
     const { host } = checkedRepository(ref)
     const failure = this.hostFailure(host)
     if (failure !== undefined) return failure
-    return await listCommits(this.graphql, ref, this.limits.maxCommits, signal)
+    return await listCommits(this.readerFor(this.accountOf(ref.repository)), ref, this.limits.maxCommits, signal)
   }
 
   /** Read the changes between two commits through the compare API in its diff form. */
   async compare(ref: ChangeRequestRef, base: string, head: string, signal: AbortSignal): Promise<string | ForgeFailure> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return failure
-    return await readComparison(async (args, operation) => await this.read(args, operation), ref.repository, base, head, signal)
+    const ghConfigDir = this.accountOf(ref.repository)
+    return await readComparison(
+      async (args, operation) => await this.read(args, operation, ghConfigDir), ref.repository, base, head, signal,
+    )
   }
 
   /**
@@ -355,7 +383,7 @@ export class GitHubProvider implements ForgeProvider {
     }
     const output = await this.read([
       'api', '--hostname', host, '--jq', '.merge_base_commit.sha', `repos/${owner}/${name}/compare/${base}...${head}?page=2&per_page=1`,
-    ], signal)
+    ], signal, this.accountOf(ref.repository))
     if (typeof output !== 'string') return output
     const commit = output.trim()
     return isCommit(commit) ? commit.toLowerCase() : { code: 'unavailable', message: 'unexpected GitHub response to the merge base read' }
@@ -365,14 +393,15 @@ export class GitHubProvider implements ForgeProvider {
   async viewedFiles(ref: ChangeRequestRef, headSha: string, signal: AbortSignal): Promise<ForgeViewedFiles | ForgeFailure> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return failure
-    return await readViewed(this.graphql, ref, headSha, this.limits.maxViewedFiles, signal)
+    return await readViewed(this.readerFor(this.accountOf(ref.repository)), ref, headSha, this.limits.maxViewedFiles, signal)
   }
 
   /** Set or clear the viewer's mark with `markFileAsViewed` or `unmarkFileAsViewed` after confirming the head. */
   async setViewed(ref: ChangeRequestRef, request: ForgeViewedRequest, signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return { code: 'failed', message: failure.message }
-    return await writeViewed(this.graphql, this.mutate, ref, request, signal)
+    const ghConfigDir = this.accountOf(ref.repository)
+    return await writeViewed(this.readerFor(ghConfigDir), this.writerFor(ghConfigDir), ref, request, signal)
   }
 
   /**
@@ -407,7 +436,9 @@ export class GitHubProvider implements ForgeProvider {
     }
     const refusals: string[] = []
     for (const run of runs) {
-      const refused = await this.act(['api', '--hostname', host, '--method', 'POST', `${endpoint}/runs/${run}/rerun-failed-jobs`], signal)
+      const refused = await this.act(
+        ['api', '--hostname', host, '--method', 'POST', `${endpoint}/runs/${run}/rerun-failed-jobs`], signal, this.accountOf(ref.repository),
+      )
       if (refused === undefined) continue
       if (refused.code === 'unauthenticated') return refused
       // The head was checked before the first request, so a conflict here names no new commit.
@@ -422,7 +453,8 @@ export class GitHubProvider implements ForgeProvider {
   ): Promise<ForgeActionFailure | undefined> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return { code: 'failed', message: failure.message }
-    return await requestGitHubReviews(this.graphql, this.mutate, ref, request, signal)
+    const ghConfigDir = this.accountOf(ref.repository)
+    return await requestGitHubReviews(this.readerFor(ghConfigDir), this.writerFor(ghConfigDir), ref, request, signal)
   }
 
   async reviewerCandidates(
@@ -430,13 +462,14 @@ export class GitHubProvider implements ForgeProvider {
   ): Promise<readonly ForgeReviewerCandidate[] | ForgeFailure> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return failure
-    return await gitHubReviewerCandidates(this.graphql, ref, query, signal)
+    return await gitHubReviewerCandidates(this.readerFor(this.accountOf(ref.repository)), ref, query, signal)
   }
 
   async updateBranch(ref: ChangeRequestRef, request: BranchUpdateRequest, signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
     const failure = this.hostFailure(checkedRepository(ref).host)
     if (failure !== undefined) return { code: 'failed', message: failure.message }
-    return await updateGitHubBranch(this.graphql, this.mutate, ref, request, signal)
+    const ghConfigDir = this.accountOf(ref.repository)
+    return await updateGitHubBranch(this.readerFor(ghConfigDir), this.writerFor(ghConfigDir), ref, request, signal)
   }
 
   fileUrl(ref: ChangeRequestRef, commit: string, path: string): string {
@@ -448,6 +481,7 @@ export class GitHubProvider implements ForgeProvider {
     const failure = this.hostFailure(host)
     if (failure !== undefined) return { state: 'unavailable', message: failure.message, signIn: null }
     try {
+      // The sign-in probe asks which account reads the host at all, not which one a repository uses.
       const output = await this.gh(['auth', 'status', '--hostname', host], signal)
       if (output.exitCode === 0) return { state: 'ready', message: null, signIn: null }
       return {
@@ -462,13 +496,68 @@ export class GitHubProvider implements ForgeProvider {
   }
 
   /**
+   * The `GH_CONFIG_DIR` that `gh` reads `repository` with, or undefined for the inherited one.
+   * @param repository - repository the call is about.
+   * @returns the directory of a route whose owner equals it without case, preferring the route that names its host over
+   * one that omits `host`; undefined when no route matches.
+   */
+  private accountOf(repository: ForgeRepository): string | undefined {
+    const owner = repository.owner.toLowerCase()
+    const host = repository.host.toLowerCase()
+    const exact = this.accounts.find(route => route.host !== undefined && route.owner.toLowerCase() === owner
+      && route.host.toLowerCase() === host)
+    if (exact !== undefined) return exact.ghConfigDir
+    return this.accounts.find(route => route.owner.toLowerCase() === owner && route.host === undefined)?.ghConfigDir
+  }
+
+  /**
+   * A `gh` runner whose invocations select `ghConfigDir`, or the provider's own runner for undefined, which keeps the
+   * inherited account.
+   * @param ghConfigDir - account directory to pass on every invocation.
+   * @returns the runner.
+   */
+  private runnerFor(ghConfigDir: string | undefined): GhRunner {
+    return ghConfigDir === undefined ? this.gh
+      : async (args, signal, call) => await this.gh(args, signal, { ...call, ghConfigDir })
+  }
+
+  /**
+   * A GraphQL reader whose requests run with `ghConfigDir`; undefined reads with the inherited account, as the viewer
+   * lists and counts do.
+   * @param ghConfigDir - account directory of the repository the reader serves.
+   * @returns the reader.
+   */
+  private readerFor(ghConfigDir: string | undefined): GraphqlReader {
+    return async (args, signal) => await this.graphql(args, signal, ghConfigDir)
+  }
+
+  /**
+   * A mutation sender whose writes run with `ghConfigDir`, through {@link sendMutation}, which never retries a
+   * mutation: a refusal or a `gh` that cannot start is `failed`, and an answer that does not confirm the outcome is
+   * `unknown`.
+   * @param ghConfigDir - account directory of the repository the sender serves.
+   * @returns the sender.
+   */
+  private writerFor(ghConfigDir: string | undefined): GraphqlWriter {
+    const gh = this.runnerFor(ghConfigDir)
+    return async (host, mutation, signal) => {
+      const sent = await sendMutation(gh, host, mutation, signal)
+      return sent.ok ? undefined : { code: sent.code, message: sent.message }
+    }
+  }
+
+  /**
    * Run one reading `gh` command, returning its output. A refusal, a `gh` that
    * cannot start, output over `maxOutputBytes`, and a run past `timeoutMs` become failures.
+   * @param args - `gh` arguments.
+   * @param signal - cancellation of the invocation.
+   * @param ghConfigDir - account directory the invocation selects, or undefined for the inherited one.
+   * @returns the output, or why the read failed.
    */
-  private async read(args: readonly string[], signal: AbortSignal): Promise<string | ForgeFailure> {
+  private async read(args: readonly string[], signal: AbortSignal, ghConfigDir: string | undefined): Promise<string | ForgeFailure> {
     let output: GhOutput | GhUnavailableError
     try {
-      output = await this.attempt(args, signal)
+      output = await this.attempt(args, signal, ghConfigDir)
     } catch (error) {
       if (error instanceof GhOutputLimitError) return { code: 'too-large', message: error.message }
       if (error instanceof GhTimeoutError) return { code: 'unavailable', message: error.message }
@@ -483,9 +572,17 @@ export class GitHubProvider implements ForgeProvider {
     return { code: status === '404' || /could not resolve to a pullrequest/i.test(output.stderr) ? 'not-found' : 'unavailable', message }
   }
 
-  /** Run one GraphQL request; a refusal, a body that is not GraphQL, and GraphQL errors become failures. */
-  private readonly graphql: GraphqlReader = async (args, signal) => {
-    const output = await this.read(args, signal)
+  /**
+   * Run one GraphQL request; a refusal, a body that is not GraphQL, and GraphQL errors become failures.
+   * @param args - `gh api graphql` arguments.
+   * @param signal - cancellation of the invocation.
+   * @param ghConfigDir - account directory the invocation selects, or undefined for the inherited one.
+   * @returns the parsed body, or why GitHub did not answer it.
+   */
+  private async graphql(
+    args: readonly string[], signal: AbortSignal, ghConfigDir: string | undefined,
+  ): Promise<{ readonly ok: true; readonly body: unknown } | { readonly ok: false; readonly failure: ForgeFailure }> {
+    const output = await this.read(args, signal, ghConfigDir)
     if (typeof output !== 'string') return { ok: false, failure: output }
     const body = parseJson(output)
     if (!hasGraphqlFields(body)) return { ok: false, failure: { code: 'unavailable', message: 'unexpected GitHub response' } }
@@ -495,17 +592,16 @@ export class GitHubProvider implements ForgeProvider {
   }
 
   /**
-   * Run one GraphQL mutation through {@link sendMutation}, which never retries it: a refusal or a `gh` that cannot
-   * start is `failed`, and an answer that does not confirm the outcome is `unknown`.
+   * Run one changing `gh` command; a refusal or a `gh` that cannot start becomes a failure.
+   * @param args - `gh` arguments.
+   * @param signal - cancellation of the invocation.
+   * @param ghConfigDir - account directory the invocation selects, or undefined for the inherited one.
+   * @returns undefined once `gh` exited 0, else the action failure.
    */
-  private readonly mutate: GraphqlWriter = async (host, mutation, signal) => {
-    const sent = await sendMutation(this.gh, host, mutation, signal)
-    return sent.ok ? undefined : { code: sent.code, message: sent.message }
-  }
-
-  /** Run one changing `gh` command; a refusal or a `gh` that cannot start becomes a failure. */
-  private async act(args: readonly string[], signal: AbortSignal): Promise<ForgeActionFailure | undefined> {
-    const output = await this.attempt(args, signal)
+  private async act(
+    args: readonly string[], signal: AbortSignal, ghConfigDir: string | undefined,
+  ): Promise<ForgeActionFailure | undefined> {
+    const output = await this.attempt(args, signal, ghConfigDir)
     if (output instanceof GhUnavailableError) return { code: 'failed', message: output.message }
     if (output.exitCode === 0) return undefined
     const { message, status } = refusal(output)
@@ -514,10 +610,18 @@ export class GitHubProvider implements ForgeProvider {
     return { code: 'failed', message }
   }
 
-  /** Run one `gh` command; a `gh` that cannot start resolves to its error, and every other rejection passes on. */
-  private async attempt(args: readonly string[], signal: AbortSignal): Promise<GhOutput | GhUnavailableError> {
+  /**
+   * Run one `gh` command; a `gh` that cannot start resolves to its error, and every other rejection passes on.
+   * @param args - `gh` arguments.
+   * @param signal - cancellation of the invocation.
+   * @param ghConfigDir - account directory the invocation selects, or undefined for the inherited one.
+   * @returns the output, or the error of a `gh` that cannot start.
+   */
+  private async attempt(
+    args: readonly string[], signal: AbortSignal, ghConfigDir: string | undefined,
+  ): Promise<GhOutput | GhUnavailableError> {
     try {
-      return await this.gh(args, signal)
+      return await this.runnerFor(ghConfigDir)(args, signal)
     } catch (error) {
       if (error instanceof GhUnavailableError) return error
       throw error
@@ -531,12 +635,13 @@ export class GitHubProvider implements ForgeProvider {
   }
 
   /**
-   * Build the queries of a status read: pull requests grouped by host in the order given, at most `size` per query.
+   * Build the queries of a status read: pull requests grouped by host and account in the order given, at most `size` per
+   * query, so no query reads one repository under another repository's account.
    * @param refs - pull requests to read.
    * @param results - receives the failure of each pull request on a host this provider does not serve.
    * @param size - most pull requests in one query.
-   * @param build - builds the query of consecutive pull requests on one host.
-   * @returns every query with its host, in request order.
+   * @param build - builds the query of consecutive pull requests on one host under one account.
+   * @returns every query with its host and account, in request order.
    * @throws what `build` throws for a reference that cannot be inlined.
    */
   private statusQueries<Query extends StatusQuery, Status>(
@@ -544,21 +649,26 @@ export class GitHubProvider implements ForgeProvider {
     results: Map<ChangeRequestKey, Status | ForgeFailure>,
     size: number,
     build: (refs: readonly ChangeRequestRef[]) => Query,
-  ): { readonly host: string; readonly query: Query }[] {
-    const byHost = new Map<string, ChangeRequestRef[]>()
+  ): { readonly host: string; readonly ghConfigDir: string | undefined; readonly query: Query }[] {
+    const groups = new Map<string, StatusGroup>()
     for (const ref of refs) {
-      const failure = this.hostFailure(ref.repository.host)
+      const { host } = ref.repository
+      const failure = this.hostFailure(host)
       if (failure !== undefined) {
         results.set(changeRequestKey(ref), failure)
         continue
       }
-      const group = byHost.get(ref.repository.host)
-      if (group === undefined) byHost.set(ref.repository.host, [ref])
-      else group.push(ref)
+      const ghConfigDir = this.accountOf(ref.repository)
+      const key = `${host.toLowerCase()}\n${ghConfigDir ?? ''}`
+      const group = groups.get(key)
+      if (group === undefined) groups.set(key, { host, ghConfigDir, refs: [ref] })
+      else group.refs.push(ref)
     }
-    const queries: { readonly host: string; readonly query: Query }[] = []
-    for (const [host, group] of byHost) {
-      for (let start = 0; start < group.length; start += size) queries.push({ host, query: build(group.slice(start, start + size)) })
+    const queries: { readonly host: string; readonly ghConfigDir: string | undefined; readonly query: Query }[] = []
+    for (const { host, ghConfigDir, refs: group } of groups.values()) {
+      for (let start = 0; start < group.length; start += size) {
+        queries.push({ host, ghConfigDir, query: build(group.slice(start, start + size)) })
+      }
     }
     return queries
   }
@@ -566,6 +676,7 @@ export class GitHubProvider implements ForgeProvider {
   /**
    * Read one snapshot query and the continuation pages of its pull requests.
    * @param host - host the query reads from.
+   * @param ghConfigDir - account directory the query runs with, or undefined for the inherited one.
    * @param query - the query and its alias targets.
    * @param signal - cancellation of the read.
    * @param completeChecks - whether to follow every check page within one `maxOutputBytes` budget.
@@ -575,11 +686,12 @@ export class GitHubProvider implements ForgeProvider {
    */
   private async fetchSnapshots(
     host: string,
+    ghConfigDir: string | undefined,
     query: SnapshotQuery,
     signal: AbortSignal,
     completeChecks: boolean,
   ): Promise<ReadonlyMap<ChangeRequestKey, ChangeRequestSnapshot | ForgeFailure>> {
-    const output = await this.statusOutput(host, ['-f', `query=${query.document}`], signal)
+    const output = await this.statusOutput(host, ghConfigDir, ['-f', `query=${query.document}`], signal)
     if (!('stdout' in output)) return failAll(query, output)
     const body = parseJson(output.stdout)
     // A complete check read retains every response it reads, so all of them share one byte budget.
@@ -593,7 +705,7 @@ export class GitHubProvider implements ForgeProvider {
     const continuation = async <T>(
       variables: readonly string[], map: (value: unknown) => PageResult<T>,
     ): Promise<PageResult<T>> => {
-      const page = await this.statusOutput(host, variables, signal)
+      const page = await this.statusOutput(host, ghConfigDir, variables, signal)
       if (!('stdout' in page)) return { ok: false, failure: page }
       if (overBudget(page)) return { ok: false, failure: tooLarge }
       const value = parseJson(page.stdout)
@@ -613,20 +725,33 @@ export class GitHubProvider implements ForgeProvider {
   /**
    * Run one GraphQL request of a status read: a snapshot query, a brief query, or a continuation page.
    * @param host - host the status is read from.
+   * @param ghConfigDir - account directory the request runs with, or undefined for the inherited one.
    * @param variables - `gh api graphql` field flags, the query first.
    * @param signal - cancellation of the status read.
    * @returns the output, or the failure of a `gh` that cannot start, times out, or prints over its limit.
    * @throws with `signal.reason` when the read is cancelled.
    */
-  private async statusOutput(host: string, variables: readonly string[], signal: AbortSignal): Promise<GhOutput | ForgeFailure> {
+  private async statusOutput(
+    host: string, ghConfigDir: string | undefined, variables: readonly string[], signal: AbortSignal,
+  ): Promise<GhOutput | ForgeFailure> {
     signal.throwIfAborted()
     try {
-      return await this.gh(['api', 'graphql', '--hostname', host, ...variables], signal)
+      return await this.runnerFor(ghConfigDir)(['api', 'graphql', '--hostname', host, ...variables], signal)
     } catch (error) {
       if (signal.aborted) throw signal.reason
       return processFailure(error)
     }
   }
+}
+
+/** Pull requests one status read holds in one query: one host, read under one `gh` account. */
+interface StatusGroup {
+  /** Host every query of the group reads from. */
+  readonly host: string
+  /** Account directory every query of the group runs with, or undefined for the inherited one. */
+  readonly ghConfigDir: string | undefined
+  /** Pull requests of the group, in the order given. */
+  readonly refs: ChangeRequestRef[]
 }
 
 /** The same failure for every pull request of a status query. */

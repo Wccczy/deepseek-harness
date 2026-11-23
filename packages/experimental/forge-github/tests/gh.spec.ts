@@ -23,6 +23,7 @@ async function fakeGh(): Promise<string> {
     'case "$1" in',
     '  echo) printf "%s|" "$@"; printf "\\nprompt=%s token=%s pager=[%s]\\n" "$GH_PROMPT_DISABLED" "${GH_TOKEN:-unset}" "$GH_PAGER" ;;',
     '  input) cat ;;',
+    '  config) printf "%s\\n" "${GH_CONFIG_DIR:-unset}" ;;',
     '  fail) echo oops >&2; exit 3 ;;',
     // exec, so the deadline kill reaches the process holding the pipes; a
     // child sleep would outlive the shell and keep the runner's close pending.
@@ -39,7 +40,16 @@ describe.skipIf(process.platform === 'win32')('gh runner', () => {
   it('delivers review JSON through stdin without interpreting shell syntax', async () => {
     const run = ghRunner({ ghCommand: await fakeGh(), timeoutMs: 5_000, maxOutputBytes: 10_000 })
     const body = JSON.stringify({ body: 'Check `$(secret)`\n检查边界' })
-    await expect(run(['input'], new AbortController().signal, body)).resolves.toEqual({ exitCode: 0, stdout: body, stderr: '' })
+    await expect(run(['input'], new AbortController().signal, { input: body })).resolves.toEqual({ exitCode: 0, stdout: body, stderr: '' })
+  })
+
+  it('adds GH_CONFIG_DIR only for a call that names an account, else inherits the parent one', async () => {
+    vi.stubEnv('GH_CONFIG_DIR', '/accounts/inherited')
+    const run = ghRunner({ ghCommand: await fakeGh(), timeoutMs: 5_000, maxOutputBytes: 10_000 })
+
+    await expect(run(['config'], new AbortController().signal)).resolves.toMatchObject({ stdout: '/accounts/inherited' })
+    await expect(run(['config'], new AbortController().signal, { ghConfigDir: '/accounts/routed' }))
+      .resolves.toMatchObject({ stdout: '/accounts/routed' })
   })
 
   it('runs gh with literal arguments and a scrubbed, non-interactive environment', async () => {

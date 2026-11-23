@@ -52,7 +52,7 @@ export async function sendMutation(gh: GhRunner, host: string, mutation: Graphql
   let output: GhOutput
   try {
     output = await gh(['api', 'graphql', '--hostname', host, '--input', '-'], signal,
-      JSON.stringify({ query: mutation.query, variables: mutation.variables }))
+      { input: JSON.stringify({ query: mutation.query, variables: mutation.variables }) })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { ok: false, code: error instanceof GhUnavailableError ? 'failed' : 'unknown', message }

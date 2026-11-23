@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-借助宿主上已登录的 GitHub CLI，为 `ctx.forge` 读取 GitHub 与 GitHub Enterprise 的 pull request。每次快照轮询按主机批量查询，读取所有到期 pull request 的状态、改动行数、检查、评审结论、可合并性与未解决的评审讨论。简报轮询只读取标题、状态、草稿标记、可合并性、评审结论与检查汇总状态。
+借助宿主上已登录的 GitHub CLI，为 `ctx.forge` 读取 GitHub 与 GitHub Enterprise 的 pull request。每次快照轮询按主机与 `gh` 账号批量查询，读取所有到期 pull request 的状态、改动行数、检查、评审结论、可合并性与未解决的评审讨论。简报轮询只读取标题、状态、草稿标记、可合并性、评审结论与检查汇总状态。
 
 ## 目录
 
@@ -34,7 +34,9 @@ kind: "package-reference"
     hosts: [github.com, ghe.example.com]
 ```
 
-即使 Session 在其他执行环境中运行命令，提供方也以宿主进程的形式运行 `gh`。每个主机执行一次 `gh auth login --hostname <host>` 完成登录。子进程继承的宿主环境去掉了 `DSH_*` 变量以及名称包含 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的变量，因此 `GH_TOKEN` 与 `GITHUB_TOKEN` 不会被转发，`gh` 使用自己的凭据存储。交互提示、更新提醒、分页器与颜色输出均被关闭。`maxOutputBytes`、`maxReviewThreads`、`snapshotBatchSize`、`briefBatchSize`、`maxCommits`、`maxViewedFiles` 与 `maxViewerItems` 必须是正安全整数，`maxViewerItems` 最大为 100；只有 `timeoutMs` 受运行时定时器上限约束。`ghCommand`、`hosts`、`timeoutMs`、`maxOutputBytes`、`maxReviewThreads`、`snapshotBatchSize`、`briefBatchSize`、`maxCommits`、`maxViewedFiles` 与 `maxViewerItems` 见[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-forge-github)。
+即使 Session 在其他执行环境中运行命令，提供方也以宿主进程的形式运行 `gh`。每个主机执行一次 `gh auth login --hostname <host>` 完成登录。子进程继承的宿主环境去掉了 `DSH_*` 变量以及名称包含 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的变量，因此 `GH_TOKEN` 与 `GITHUB_TOKEN` 不会被转发，`gh` 使用自己的凭据存储。交互提示、更新提醒、分页器与颜色输出均被关闭。`maxOutputBytes`、`maxReviewThreads`、`snapshotBatchSize`、`briefBatchSize`、`maxCommits`、`maxViewedFiles` 与 `maxViewerItems` 必须是正安全整数，`maxViewerItems` 最大为 100；只有 `timeoutMs` 受运行时定时器上限约束。`ghCommand`、`hosts`、`timeoutMs`、`maxOutputBytes`、`maxReviewThreads`、`snapshotBatchSize`、`briefBatchSize`、`maxCommits`、`maxViewedFiles`、`maxViewerItems` 与 `accounts` 见[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-forge-github)。
+
+`accounts` 让一个仓库的 pull request 由另一个 `gh` 账号读取。每个路由给出一个 `owner`，以及该 owner 名下仓库的调用要设为 `GH_CONFIG_DIR` 的 `ghConfigDir`，还可选给出 `host`。当仓库的 owner 与路由的 `owner` 忽略大小写相等，且仓库的 host 与路由的 `host`（给出时）忽略大小写相等时，路由匹配该仓库；精确的 host 匹配优先于省略 `host` 的路由，后者适用于所有已配置的主机。没有任何路由匹配的仓库继承宿主环境，与没有 `accounts` 时一致。`owner` 以字母或数字开头，只含字母、数字和连字符；`ghConfigDir` 不得为空白；路由的 `host` 必须是 `hosts` 之一；同一 `owner` 与同一有效 host 的第二个路由会被拒绝。匹配仓库的每次读取与写入都以该目录运行 `gh`。同一次快照或简报读取涉及同一主机上多个 owner 的 pull request 时，每个账号的 pull request 各自作为一个查询发送。
 
 [forge-session](../forge-session/README.zh.md) 运行期间，插件向其注册 `gh` 命令规则。`gh pr create` 与 `gh pr new` 绑定它们打印的 pull request。`gh pr view`、`gh pr edit` 与 `gh pr checkout` 绑定 URL 选中的 pull request，或前后带有 `--repo`、`--repo=` 或 `-R` 的编号所选中的 pull request；包含主机的仓库参数或字面量 `GH_HOST` 赋值可直接确定 URL，其他仓库参数则在调用所在的 shell 中通过 `gh pr view <number> --repo <repository> --json url --jq .url` 解析。`gh api` 绑定其 REST 路径指向的 pull request，例如 `repos/octo/demo/pulls/7/files`：`--hostname` 或字面量 `GH_HOST` 赋值写明主机时直接绑定，否则通过同样的 `gh pr view` 查询解析，`{owner}/{repo}` 占位符则不带 `--repo`。
 
@@ -42,7 +44,7 @@ kind: "package-reference"
 
 轮询只返回 head 提交的前 100 条检查上下文，不追读后续页。预览不完整时设置 `checksTruncated` 并保留 GitHub 的汇总状态，局部计数不代表完整列表。`fetchChecks(ref, signal)` 仅按需读取指定 PR 的完整详情，后续页固定使用首次响应的 rollup。所有 JSON 响应（包括评审讨论分页）的 UTF-8 字节总量受 `maxOutputBytes` 限制，超出时返回 `too-large`。分页失败或游标不前进只使此次详情读取失败，保留轮询结果。同一应用、工作流、触发事件与检查名称的运行只保留运行 id 最新的一条；新的排队运行会替代旧的已完成运行。缺少数字数据库 id 的运行无法确定先后，因此按节点 id 保留。提交状态上下文按名称保留最新结果。完整列表从这些结果计算总体指示；未知上下文类型保留 GitHub 的汇总状态。
 
-快照读取把同一主机最多 `snapshotBatchSize`（默认 8）个 pull request 放进一个 GraphQL 查询，`fetchBriefs` 则最多放 `briefBatchSize`（默认 25）个。提供方把这两个大小告知 forge 注册表，注册表每次调用轮询同一主机的这么多个 pull request，所以一次轮询的每个查询独占注册表的 `fetchTimeoutMs` 时限，查询得到应答后它的结果就会发布。一次读取指定了同一主机更多的 pull request 时，依次发送各个查询；快照查询读完自己的评审讨论分页后，才发送下一个查询。简报查询读取 `url`、`title`、`state`、`isDraft`、`mergeable`、`reviewDecision` 以及 head 提交的 `statusCheckRollup.state`，不读取检查列表、评审人、评审讨论和仓库的合并设置。简报的检查汇总结果就是这个 `statusCheckRollup.state`；检查列表完整的快照则根据自己保留的检查得出结果。某个查询的 `gh` 无法启动、超过 `timeoutMs` 或输出超过 `maxOutputBytes`，或被 GitHub 拒绝时，只有该查询内的 pull request 失败；响应中不带路径的 GraphQL 错误也只影响该查询内的 pull request。读取被取消后不再发送后续查询。
+快照读取把同一主机、同一 `gh` 账号最多 `snapshotBatchSize`（默认 8）个 pull request 放进一个 GraphQL 查询，`fetchBriefs` 则最多放 `briefBatchSize`（默认 25）个。提供方把这两个大小告知 forge 注册表，注册表每次调用轮询同一主机的这么多个 pull request，所以一次轮询的每个查询独占注册表的 `fetchTimeoutMs` 时限，查询得到应答后它的结果就会发布。一次读取指定了同一主机与账号更多的 pull request 时，依次发送各个查询；快照查询读完自己的评审讨论分页后，才发送下一个查询。简报查询读取 `url`、`title`、`state`、`isDraft`、`mergeable`、`reviewDecision` 以及 head 提交的 `statusCheckRollup.state`，不读取检查列表、评审人、评审讨论和仓库的合并设置。简报的检查汇总结果就是这个 `statusCheckRollup.state`；检查列表完整的快照则根据自己保留的检查得出结果。某个查询的 `gh` 无法启动、超过 `timeoutMs` 或输出超过 `maxOutputBytes`，或被 GitHub 拒绝时，只有该查询内的 pull request 失败；响应中不带路径的 GraphQL 错误也只影响该查询内的 pull request。读取被取消后不再发送后续查询。
 
 每次快照读取按每页最多 100 个统计评审讨论，直到已统计 `maxReviewThreads`（默认 1,000）个为止；第一页之后每读一页多一次 GraphQL 查询。讨论更多的 pull request 设置 `threadsTruncated`，其 `unresolvedThreads` 只统计已读取的讨论。讨论分页失败或游标不前进时，该 pull request 的状态读取失败，同批其他 pull request 不受影响；不发布不完整的计数。
 
@@ -74,19 +76,19 @@ pull request 处于打开状态、不是草稿、GitHub 报告其合并状态为
 <details>
 <summary>实现细节——点击展开</summary>
 
-快照读取与简报读取都按主机对引用分组，在第一次请求前为每 `snapshotBatchSize` 或 `briefBatchSize` 个引用构造一个 `gh api graphql` 查询，再依次发送。后续分页使用原汇总节点 id，因此 PR 的 head 变化不会让同一检查列表混入其他提交。查询内联经过校验的 owner、name 与编号，并为每个 pull request 设置别名，因此局部 GraphQL 错误只影响对应的别名。出现局部错误时 `gh` 以非零状态退出，但仍会输出完整响应；提供方先解析该响应，再检查退出码。
+快照读取与简报读取都按主机与 `gh` 账号对引用分组，在第一次请求前为每 `snapshotBatchSize` 或 `briefBatchSize` 个引用构造一个 `gh api graphql` 查询，再依次发送。后续分页使用原汇总节点 id，因此 PR 的 head 变化不会让同一检查列表混入其他提交。查询内联经过校验的 owner、name 与编号，并为每个 pull request 设置别名，因此局部 GraphQL 错误只影响对应的别名。出现局部错误时 `gh` 以非零状态退出，但仍会输出完整响应；提供方先解析该响应，再检查退出码。
 
 | 源码 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 配置校验，以及提供方与命令规则注册 |
 | [`src/commands.ts`](src/commands.ts) | forge-session 据以绑定 pull request 的 `gh` 命令规则 |
-| [`src/provider.ts`](src/provider.ts) | URL 映射、按主机分组与失败分类 |
+| [`src/provider.ts`](src/provider.ts) | URL 映射、按主机与账号分组，以及失败分类 |
 | [`src/graphql.ts`](src/graphql.ts) | 构造查询，并校验和映射响应 |
 | [`src/compare.ts`](src/compare.ts) | 经 compare API 读取两个提交之间的补丁，供所有 diff 读取共用 |
 | [`src/threads.ts`](src/threads.ts) | 读取评审讨论、分页，并映射到 head 位置与原始位置 |
 | [`src/review-writes.ts`](src/review-writes.ts) | head 检查，以及评审讨论与待提交评审的 mutation |
 | [`src/mutation.ts`](src/mutation.ts) | 发送单个 GraphQL mutation 并判定其结果 |
-| [`src/gh.ts`](src/gh.ts) | 在宿主上执行 `gh`，清理环境变量并施加限制 |
+| [`src/gh.ts`](src/gh.ts) | 在宿主上执行 `gh`，清理环境变量、按调用选择账号并施加限制 |
 | [`src/viewed.ts`](src/viewed.ts) | 读取与写入已审阅文件 |
 | [`src/overview.ts`](src/overview.ts) | 评审请求、评审者搜索与分支更新 |
 | [`src/pull-request-node.ts`](src/pull-request-node.ts) | 在核对过的 head 上读取 pull request 节点 id，供写操作使用 |
@@ -119,6 +121,7 @@ pull request 处于打开状态、不是草稿、GitHub 报告其合并状态为
 <a id="known-limitations-and-deferred-work"></a>
 
 - **宿主需要 GitHub CLI**——必须安装 `gh` 并为每个已配置主机登录；环境变量中的令牌不会被转发。不在 `hosts` 中的主机永远不会被读取，包括配置变更后保留的引用。状态读取为这些引用返回 `unavailable`；head 查找会在启动 `gh` 前拒绝。
+- **按主机发起的调用沿用进程账号**——`accounts` 只路由针对某个仓库的调用。就绪探测（`gh auth status --hostname <host>`）、查看者列表与查看者计数询问的是已登录用户而非某个仓库，因此始终使用继承的 `GH_CONFIG_DIR`；指向另一个账号的路由不会改变它们，只在某个路由账号下登录的主机在这些地方会报告 `unauthenticated`。查看者标记、待提交评审与评审讨论的权限同样来自读取该仓库的账号，因此经路由账号发出的写入也属于该账号。
 - **评审讨论上限**——每次状态读取每个 pull request 最多统计、每次评审读取最多读取 `maxReviewThreads` 个评审讨论；超出时 `unresolvedThreads` 只是下限，由 `threadsTruncated` 标出，评审读取的结果标记为 `truncated`。
 - **调用时限**——一个快照查询和它的 pull request 的续页，在 `ctx.forge` 的同一个 `fetchTimeoutMs` 时限内运行；评审讨论很多的 pull request 可能让它所在的查询超过该时限，这时该查询里最多 `snapshotBatchSize` 个 pull request 都报告 `unavailable`，而不只是讨论很多的那个。
 - **简报的检查结果**——简报报告 GitHub 的检查汇总状态，检查列表完整的快照则自行得出结果；同一个 pull request 的两个结果不一致时，没有机制去对齐它们。

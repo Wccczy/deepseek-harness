@@ -461,6 +461,46 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-attachment-local -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-bash-envrc -->
+<a id="deepseek-aidsh-bash-envrc"></a>
+
+## `@deepseek-ai/dsh-bash-envrc`
+
+- `inject`: `subprocess` · `sandbox` · `sandboxPolicy`
+- `refs`: [`LocalConfig`](#deepseek-aidsh-bash-local)
+- `source`: [`packages/shell/bash-envrc/src/index.ts:67`](../packages/shell/bash-envrc/src/index.ts)
+
+```ts config-catalog
+/** Validated plugin configuration: the local executor's knobs plus the project-environment fields. */
+export interface Config extends LocalConfig {
+  /** Project `.envrc` loading configuration. */
+  envrc: EnvrcConfig
+}
+
+/** Project-environment loading knobs. */
+export interface EnvrcConfig {
+  /** Resolve the project environment at all; false makes this executor behave like its parent. */
+  enabled: boolean
+  /** Command that prints direnv's JSON export; argv, never shell-interpreted. */
+  command: string[]
+  /** Deadline for one resolution, independent of the command's own timeout. */
+  timeoutMs: number
+  /**
+   * When non-empty, only these names may pass (case-insensitive). The deny
+   * lists still apply first, so an allow entry cannot re-admit a bootstrap or
+   * credential name.
+   */
+  allow: string[]
+  /** Extra names refused on top of the built-in bootstrap, `DIRENV_*`, and credential lists. */
+  deny: string[]
+  /** Fail the command when direnv refuses the `.envrc`; false degrades to the ambient environment. */
+  failOnRefusal: boolean
+  /** How long a resolved environment (and an absent `.envrc`) stays cached, in milliseconds. */
+  cacheMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-bash-envrc -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-bash-local -->
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -1451,7 +1491,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-forge-github`
 
 - `inject`: `forge`
-- `source`: [`packages/experimental/forge-github/src/index.ts:19`](../packages/experimental/forge-github/src/index.ts)
+- `source`: [`packages/experimental/forge-github/src/index.ts:21`](../packages/experimental/forge-github/src/index.ts)
 
 ```ts config-catalog
 /** GitHub CLI executable, served hosts, and invocation limits. */
@@ -1482,6 +1522,23 @@ export interface Config {
   maxViewedFiles?: number
   /** Most pull requests one viewer list read returns, at most 100, the size of one GitHub search page. */
   maxViewerItems?: number
+  /**
+   * `gh` accounts of one owner's repositories. A route whose `owner` equals the repository owner without case, and
+   * whose `host`, when given, equals the repository host without case, selects the `GH_CONFIG_DIR` of every call about
+   * that repository; an exact host match wins over a route without `host`, which applies to every configured host. A
+   * repository no route matches keeps the inherited environment.
+   */
+  accounts?: AccountRoute[]
+}
+
+/** One `gh` account, and the repositories it reads. */
+export interface AccountRoute {
+  /** Repository owner whose calls use this account, compared without case. */
+  owner: string
+  /** Host this route applies to; omit to apply to every configured host. */
+  host?: string
+  /** `GH_CONFIG_DIR` for `gh` invocations on that owner's repositories. */
+  ghConfigDir: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-forge-github -->
@@ -1936,7 +1993,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-hmr`
 
 - `refs`: `ChokidarOptions` (`chokidar`)
-- `source`: [`packages/boot/hmr/src/index.ts:56`](../packages/boot/hmr/src/index.ts)
+- `source`: [`packages/boot/hmr/src/index.ts:60`](../packages/boot/hmr/src/index.ts)
 
 ```ts config-catalog
 /** Module roots and watcher timing, with Chokidar deployment options. */
@@ -2300,7 +2357,7 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:257`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:258`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -2514,6 +2571,14 @@ export interface PiAiCompatProfile {
   requiresToolResultName?: boolean
   /** Whether a user message after tool results needs an assistant message between; `openai-completions`. */
   requiresAssistantAfterToolResult?: boolean
+  /** Whether a replayed assistant message with no text must send `""` instead of `null` content; `openai-completions`. */
+  requiresNonNullAssistantContent?: boolean
+  /**
+   * Whether a request without tools must send `tools: []` when the
+   * conversation carries tool calls or results, which some proxies in front of
+   * Anthropic require; `openai-completions`.
+   */
+  requiresToolsWithToolHistory?: boolean
   /** Whether thinking blocks must travel as text in `<thinking>` delimiters; `openai-completions`. */
   requiresThinkingAsText?: boolean
   /** Whether replayed assistant messages need an empty `reasoning_content` while reasoning is on; `openai-completions`. */
@@ -2550,6 +2615,12 @@ export interface PiAiCompatProfile {
    * `openai-completions`, the three Responses protocols, `anthropic-messages`.
    */
   supportsLongCacheRetention?: boolean
+  /**
+   * Whether requests carry `prompt_cache_key`. `auto` follows the installed
+   * detection, `disabled` omits it, and `enabled` sends it to any endpoint;
+   * `openai-completions` and the three Responses protocols.
+   */
+  promptCacheKeyMode?: PiAiPromptCacheKeyMode
   /** Whether the endpoint accepts per-tool `eager_input_streaming`; `anthropic-messages`. */
   supportsEagerToolInputStreaming?: boolean
   /** Whether the endpoint accepts `cache_control` on tool definitions; `anthropic-messages`. */
@@ -2562,6 +2633,13 @@ export interface PiAiCompatProfile {
   allowEmptySignature?: boolean
   /** Whether the endpoint accepts Anthropic strict tool schemas; `anthropic-messages`. */
   supportsStrictTools?: boolean
+  /**
+   * Whether the endpoint supports Anthropic message threads, which continue a
+   * session by sending only the new messages. The installed catalog enables
+   * them for `api.anthropic.com` and leaves them off elsewhere, so a gateway
+   * that forwards the `thread` request field sets this; `anthropic-messages`.
+   */
+  supportsMessageThreads?: boolean
 }
 
 /** One request modality a pi-ai model may accept. */
@@ -2582,6 +2660,9 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 /** The reasoning-budget field spellings pi-ai accepts. */
 export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['thinkingTokenBudgetField']>
+
+/** The prompt-cache-key dispositions pi-ai accepts. */
+export type PiAiPromptCacheKeyMode = NonNullable<OpenAICompletionsCompat['promptCacheKeyMode']>
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-pi-ai -->
 

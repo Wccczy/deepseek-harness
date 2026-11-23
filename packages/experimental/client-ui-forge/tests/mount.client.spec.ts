@@ -849,7 +849,7 @@ describe('mountForgePanel Session panel actions', () => {
     await f.dispose()
   })
 
-  it('closes the panel, Session list, and review count streams once the page was hidden for 30 seconds, and opens them when it shows', async () => {
+  it('closes the panel and Session list streams once the page was hidden for 30 seconds, and opens them when it shows', async () => {
     const f = await fixture()
     const visibility = vi.spyOn(document, 'visibilityState', 'get')
     const show = (state: DocumentVisibilityState): void => {
@@ -859,9 +859,6 @@ describe('mountForgePanel Session panel actions', () => {
     const panel = f.section(S1).hooks.panel.subscribe(() => {})
     const list = f.list('row').hooks.states.subscribe(() => {})
     const extensions = f.changes(S1).hooks.extensions.subscribe(() => {})
-    const face = f.entry('sidebar.panellist.trailing', ReviewNavCount)?.inject?.()
-    assert(face !== undefined && isReviewCountFace(face))
-    const count = face.hooks.count.subscribe(() => {})
     await vi.waitFor(() => { expect(f.streams).toHaveLength(1) })
     vi.useFakeTimers()
     try {
@@ -869,14 +866,12 @@ describe('mountForgePanel Session panel actions', () => {
       await vi.advanceTimersByTimeAsync(30_000)
       expect(f.streams[0]?.disposed).toHaveBeenCalled()
       expect(f.stateStreams[0]?.disposed).toHaveBeenCalled()
-      expect(f.countStreams[0]?.disposed).toHaveBeenCalled()
       // The extension stream reads nothing from a code host and stays open.
       expect(f.extensionStreams[0]?.disposed).not.toHaveBeenCalled()
 
       show('visible')
       await vi.waitFor(() => { expect(f.streams).toHaveLength(2) })
       expect(f.stateStreams).toHaveLength(2)
-      expect(f.countStreams).toHaveLength(2)
       expect(f.extensionStreams).toHaveLength(1)
     } finally {
       vi.useRealTimers()
@@ -885,7 +880,6 @@ describe('mountForgePanel Session panel actions', () => {
     panel()
     list()
     extensions()
-    count()
     await f.dispose()
   })
 

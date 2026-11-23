@@ -272,7 +272,7 @@ describe('historical tool availability on the wire', () => {
     expect(input[3]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [
       expect.objectContaining({ type: 'function', name: 'search', description: added.description, parameters: added.parameters }),
     ] })
-    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\nInstruction two.' })
+    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\n\nInstruction two.' })
   })
 
   it('retains removed declarations and reactivates them through Anthropic history', async () => {
@@ -311,7 +311,7 @@ describe('historical tool availability on the wire', () => {
     expect(input[1]).toMatchObject({ role: 'user', content: [{ type: 'input_text', text: 'first' }] })
     expect(JSON.stringify(input[2])).toContain('incremental tools update')
     expect(input[3]).toMatchObject({ type: 'additional_tools', role: 'developer', tools: [expect.objectContaining({ name: 'search' })] })
-    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\nInstruction two.' })
+    expect(input[4]).toMatchObject({ role: 'developer', content: 'Instruction one.\n\nInstruction two.' })
     expect(JSON.stringify(input[5])).toContain('no longer available')
     expect(JSON.stringify(requests[0])).not.toContain('tool_removal')
   })

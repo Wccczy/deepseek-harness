@@ -368,6 +368,7 @@ describe('ThreadList', () => {
   function list(overrides: Partial<ThreadListProps> = {}) {
     const props: ThreadListProps = {
       entries: [], files: [], truncated: false, url: 'https://github.com/octo/demo/pull/7', filter: 'all', claim: false,
+      tab: 'threads', chooseTab: vi.fn(), width: 320, resize: vi.fn(),
       claimed: vi.fn(), choose: vi.fn(), open: vi.fn(), openLink: vi.fn(), close: vi.fn(), t, ...overrides,
     }
     return { props, view: render(<ThreadList {...props} />) }

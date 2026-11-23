@@ -66,6 +66,12 @@ export interface ForgeChangeRequestCardActionsProps {
   readonly state: ChangeRequestState | null
 }
 
+/** Owner props of `forge.changes.threads.panel`. */
+export interface ForgeThreadsPanelProps {
+  /** The view whose thread list shows the section. */
+  readonly target: ChangesTarget
+}
+
 /** Owner props of `forge.review.conversation`. */
 export interface ForgeReviewConversationProps {
   /** Headline of the blank conversation, naming the change request. */
@@ -86,6 +92,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'forge.diff.line.annotation': { kind: 'keyed'; scope: 'session'; owner: ForgeLineAnnotationProps }
     /** Buttons a plugin adds to the line comment form, between Add to input and the code host actions. */
     'forge.diff.comment.actions': { kind: 'list'; scope: 'session'; owner: ForgeCommentActionsProps }
+    /** The body of the drafts tab in the thread list pane. */
+    'forge.changes.threads.panel': { kind: 'list'; scope: 'session'; owner: ForgeThreadsPanelProps }
     /** Icon buttons a plugin adds to a change request card's head, before the card's actions menu. */
     'forge.change-request.card.actions': { kind: 'list'; scope: 'session'; owner: ForgeChangeRequestCardActionsProps }
   }

@@ -6,7 +6,7 @@
 
 ## 提供方与变更请求
 
-一个提供方在其 `hosts` 列出的主机上服务一个 forge 家族，例如 `github`；任意两个已注册的提供方不能列出同一主机，因此每个远端和变更请求 URL 至多对应一个提供方。它把 Git 远端 URL 映射为仓库，把变更请求 URL 映射为引用，构造规范的变更请求 URL，按 head 分支查找打开状态的变更请求，并批量读取状态。`changeRequestKey` 从引用派生一个不区分大小写的键，因此 URL 拼写不同的监听方共享同一个轮询循环。
+一个提供方在其 `hosts` 列出的主机上服务一个 forge 家族，例如 `github`；任意两个已注册的提供方不能列出同一主机，因此每个远端和变更请求 URL 至多对应一个提供方。它把 Git 远端 URL 映射为仓库，把变更请求 URL 映射为引用，构造规范的变更请求 URL，按 head 分支查找打开状态的变更请求，并批量读取状态。`changeRequestKey` 从引用派生一个不区分大小写的键，因此 URL 拼写不同的监听方共享同一个轮询循环。提供方在宿主上运行的外部 CLI 使用宿主进程持有的账号，除非提供方按仓库选择账号：[GitHub 提供方 README](../../packages/experimental/forge-github/README.zh.md#use-this-package) 说明它的 `accounts` 配置如何为一个仓库选取 `GH_CONFIG_DIR`，以及哪些调用沿用进程账号。
 
 ```ts type-equiv
 /** One repository on a code host, identified the way its provider addresses it. */
@@ -1617,7 +1617,7 @@ interface ForgeLocalChanges {
 | 评审数据 | `ctx.forge` 与 `forge/review-changed` 事件 | 各 forge 提供方 | 面板 Host 与其他 Host 插件 |
 | 筛选透镜 | `ctx.forgePanel.registerLens` | Host 插件 | 经 `changesLens` 使用它的变更视图 |
 | 变更视图接口 | `ctx.forgeChanges` | forge 面板的 Client 插件 | 打开视图、给透镜起名、添加注解的 Client 插件 |
-| Slot | `forge.changes.toolbar`、`forge.changes.file.menu`、`forge.diff.line.annotation`、`forge.diff.comment.actions`、`forge.change-request.card.actions` | Client 插件 | 变更视图与变更请求卡片 |
+| Slot | `forge.changes.toolbar`、`forge.changes.file.menu`、`forge.diff.line.annotation`、`forge.diff.comment.actions`、`forge.changes.threads.panel`、`forge.change-request.card.actions` | Client 插件 | 变更视图、讨论面板与变更请求卡片 |
 | Session 数据 | `forgeChangeRequests` 与 `forgeWorktree` 投影 | forge-session 与 forge 面板 | Client 插件经 `useProjection` 读取，Host 插件经 `ctx.forgeSession.changeRequests` 或 `ctx.sessionProjections.snapshot` 读取 |
 
 托管平台接受一次评审写入、一次评审提交或一个已审阅标记后，`ctx.forge` 发出 `forge/review-changed`，无论是哪个插件做的；结果未知、被拒绝、已过时或不支持时不发出。面板 Host 随后丢弃为该变更请求保留的讨论，并让对应条目的 `reviewRevision` 加一，因此已打开的变更视图无需刷新就会重新读取讨论和已审阅标记。
@@ -1687,7 +1687,7 @@ interface ForgeLensKeep {
 }
 ```
 
-`ctx.forgeChanges` 还可以生成和解析变更视图地址，给出标签的 `kinds`，并用 `open(target, { path, lens })` 在侧栏所显示的 Session 中打开视图。`registerAnnotations(source)` 添加行注解：数据源按路径观察每个视图的注解，它在 `forge.diff.line.annotation` 中按数据源身份登记的条目，负责绘制视图所画外框里的内容。注解放在其最后一行之后，位于评论框、浏览器草稿和托管平台讨论之后，落在所在一侧的那一栏；整个文件的注解排在最前，写在另一个 `digest` 上的注解在文件之后单独成段。每个文件最多显示 `maxAnnotationsPerFile` 条；逐行绘制的文件在文件段进入可视区附近之前不绘制注解。所有 slot 的 owner props 见 [`src/client/slots.ts`](../../packages/experimental/client-ui-forge/src/client/slots.ts)。
+`ctx.forgeChanges` 还可以生成和解析变更视图地址，给出标签的 `kinds`，并用 `open(target, { path, lens })` 在侧栏所显示的 Session 中打开视图。`registerAnnotations(source)` 添加行注解：数据源按路径观察每个视图的注解，它在 `forge.diff.line.annotation` 中按数据源身份登记的条目，负责绘制视图所画外框里的内容。注解放在其最后一行之后，位于评论框、浏览器草稿和托管平台讨论之后，落在所在一侧的那一栏；整个文件的注解排在最前，写在另一个 `digest` 上的注解在文件之后单独成段。每个文件最多显示 `maxAnnotationsPerFile` 条；逐行绘制的文件在文件段进入可视区附近之前不绘制注解。`openThreads(target, tab)` 打开该视图的评论面板，可以用 `tab` 指定标签页；`forge.changes.threads.panel` 的条目填充其中的“草稿”标签页，插件因此可以把自己的列表放在评论旁边。面板分为带筛选条的“评论”标签页和装这些条目的“草稿”标签页，只滚动当前标签页，并可以拖拽左侧边缘在 260px 到 560px 之间调整宽度。所有 slot 的 owner props 见 [`src/client/slots.ts`](../../packages/experimental/client-ui-forge/src/client/slots.ts)。
 
 ```ts type-equiv
 /** Where one line annotation sits in a file of a changes view. */

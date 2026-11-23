@@ -368,7 +368,7 @@ function registerUi(ctx: Context): void {
         panel: visibility => visibility === 'visible' ? store.panel.hooks.panel : undefined,
         annotations: address => annotationsOf(store, address),
       },
-      hooks: { lenses: changes.lenses, extensions: extensionSource.observable },
+      hooks: { lenses: changes.lenses, extensions: extensionSource.observable, threadsRequest: changes.threadsRequests },
       changesLens: (request, signal) => ctx.remote.forgePanel.changesLens(sessionId, request, signal),
       reconnect: store.panel.reconnect,
       localDiff: (scope, signal) => ctx.remote.forgePanel.localDiff(sessionId, scope, signal),
@@ -496,6 +496,7 @@ function registerUi(ctx: Context): void {
       'forge.changes.file.menu': { kind: 'list', scope: 'session' },
       'forge.diff.line.annotation': { kind: 'keyed', scope: 'session' },
       'forge.diff.comment.actions': { kind: 'list', scope: 'session' },
+      'forge.changes.threads.panel': { kind: 'list', scope: 'session' },
     },
   }, ChangesTab))
   ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({

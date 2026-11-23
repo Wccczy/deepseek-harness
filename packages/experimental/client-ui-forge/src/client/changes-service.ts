@@ -52,6 +52,16 @@ export interface ForgeAnnotationSource {
   observe(target: ChangesTarget): HostObservable<ReadonlyMap<string, readonly ForgeLineAnnotation[]>>
 }
 
+/** A Client plugin's request to open one changes view's thread list, where plugin panel sections show. */
+export interface ForgeThreadsRequest {
+  /** Address of the changes view whose thread list should open. */
+  readonly address: string
+  /** Increases with every request, so the view tells a new one from the one it already opened. */
+  readonly revision: number
+  /** Tab to open, which matches `ThreadListTab`; the thread list opens on its own tab when this is absent. */
+  readonly tab?: 'drafts' | 'threads'
+}
+
 /** What the service needs from the right sidebar. */
 export interface ForgeChangesSidebar {
   /** Session whose sidebar shows, or undefined without one. */
@@ -102,8 +112,12 @@ export class ForgeChangesService {
   readonly lenses: HostObservable<readonly ForgeLensDescription[]>
   /** Annotation sources in stacking order. */
   readonly annotationSources: HostObservable<readonly ForgeAnnotationSource[]>
+  /** The latest request to open a view's thread list, which that view consumes once. */
+  readonly threadsRequests: HostObservable<ForgeThreadsRequest | null>
   private readonly lensEntries = new OrderedEntries<ForgeLensDescription>('lens description')
   private readonly sourceEntries = new OrderedEntries<ForgeAnnotationSource>('annotation source')
+  private request: ForgeThreadsRequest | null = null
+  private readonly requestListeners = new Set<() => void>()
 
   /**
    * @param sidebar - the right sidebar's open path.
@@ -117,6 +131,13 @@ export class ForgeChangesService {
   ) {
     this.lenses = this.lensEntries
     this.annotationSources = this.sourceEntries
+    this.threadsRequests = {
+      getSnapshot: () => this.request,
+      subscribe: (listener) => {
+        this.requestListeners.add(listener)
+        return () => { this.requestListeners.delete(listener) }
+      },
+    }
   }
 
   /**
@@ -159,6 +180,23 @@ export class ForgeChangesService {
    */
   describeLens(description: ForgeLensDescription): () => void {
     return this.lensEntries.add(description)
+  }
+
+  /**
+   * Open one view's thread list, where the `forge.changes.threads.panel` entries draw.
+   * @param target - the view; its Session must be the one the sidebar shows.
+   * @param tab - the tab to open, or the thread list's own when absent.
+   * @throws when the sidebar shows another Session, as `open` does.
+   */
+  openThreads(target: ChangesTarget, tab?: 'drafts' | 'threads'): void {
+    if (this.sidebar.mounted() !== target.sessionId) {
+      throw new Error(`forge-panel: Session ${target.sessionId} is not the Session the sidebar shows`)
+    }
+    this.request = {
+      address: changesAddress(target), revision: (this.request?.revision ?? 0) + 1,
+      ...(tab === undefined ? {} : { tab }),
+    }
+    for (const listener of [...this.requestListeners]) listener()
   }
 
   /**

@@ -18,7 +18,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ChangeRequestActions } from '../src/client/ChangeRequestCard.tsx'
 import type { ViewAnnotations } from '../src/client/annotations.ts'
-import type { ForgeLensDescription } from '../src/client/changes-service.ts'
+import type { ForgeLensDescription, ForgeThreadsRequest } from '../src/client/changes-service.ts'
 import { createChangesStore } from '../src/client/changes-store.ts'
 import { ChangesView, type ChangesTabProps, type ChangesViewProps, type ChangesViewTab } from '../src/client/ChangesTab.tsx'
 import { en } from '../src/client/locales.ts'
@@ -489,6 +489,7 @@ describe('ChangesView without a target', () => {
       useExtensions: bindSnapshotSelector(createSnapshotStore<StreamSnapshot<ForgeExtensionState | null>>({
         state: { lenses: [], maxAnnotationsPerFile: 100 }, disconnected: false,
       })),
+      useThreadsRequest: bindSnapshotSelector(createSnapshotStore<ForgeThreadsRequest | null>(null)),
       renderSlot, useStore: bindSnapshotSelector(store), actions: store.actions, t,
     }
     const view = render(<ChangesView {...props} />)

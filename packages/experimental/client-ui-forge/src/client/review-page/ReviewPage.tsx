@@ -12,7 +12,7 @@ import type { ChangeRequestDescription, ForgeReviewThread } from '@deepseek-ai/d
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ForgeReviewChangeRequest, ForgeReviewFrame } from '../../types.ts'
 import type { ChangeRequestActions } from '../ChangeRequestCard.tsx'
-import type { ForgeLensDescription } from '../changes-service.ts'
+import type { ForgeLensDescription, ForgeThreadsRequest } from '../changes-service.ts'
 import { ChangesView, type ChangesTabInjected, type ChangesViewTab } from '../ChangesTab.tsx'
 import { useHostStream, type StreamRead } from './host-stream.ts'
 import type { NS } from '../locales.ts'
@@ -79,6 +79,7 @@ const NO_EXTENSIONS = fixedHook<StreamSnapshot<ForgeExtensionState | null>>({ st
 const NO_BINDING = (): (() => void) => () => {}
 /* v8 ignore next -- the changes view renders plugin slots only for a target, and the review page passes none */
 const NO_SLOT = (): null => null
+const NO_THREADS_REQUEST = fixedHook<ForgeThreadsRequest | null>(null)
 
 /** Refreshes relative times once a minute. */
 function useMinuteClock(): number {
@@ -119,7 +120,7 @@ function ReviewChanges({ frame, visible, changes, useStore, actions, t }: {
   return (
     <ChangesView {...changes} tab={tab} source={source} target={null} snapshot={snapshot} annotations={undefined} openFile={undefined}
       quoteCopy={CHAT_QUOTE_COPY}
-      reconnect={NO_BINDING} useLenses={NO_LENSES} useExtensions={NO_EXTENSIONS} renderSlot={NO_SLOT}
+      reconnect={NO_BINDING} useLenses={NO_LENSES} useExtensions={NO_EXTENSIONS} useThreadsRequest={NO_THREADS_REQUEST} renderSlot={NO_SLOT}
       useStore={useStore} actions={actions} t={t} />
   )
 }

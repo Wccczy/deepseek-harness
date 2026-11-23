@@ -42,7 +42,7 @@ import type { ReviewActions } from './ReviewComposer.tsx'
 import { SubmitReview } from './SubmitReview.tsx'
 import type { QuoteCopy, ReviewSelection, ReviewSource } from './review.ts'
 import { BaseMenu } from './BaseMenu.tsx'
-import { parseChangesAddress, type ChangesSource, type ChangesTarget } from './changes-address.ts'
+import { changesAddress, parseChangesAddress, type ChangesSource, type ChangesTarget } from './changes-address.ts'
 import type { ChangesLens, createChangesStore } from './changes-store.ts'
 import { CommitMenu } from './CommitMenu.tsx'
 import { HideTestsSwitch, LensControl, LensMenu, LENSES, ViewedProgress } from './ReviewControls.tsx'
@@ -60,7 +60,7 @@ import type { ForgePanelKey, NS } from './locales.ts'
 import { useForgeCopy } from './forge-copy.ts'
 import { RefreshGlyph } from './RefreshGlyph.tsx'
 import { ViewOptionsMenu } from './ViewOptionsMenu.tsx'
-import type { ForgeLensDescription } from './changes-service.ts'
+import type { ForgeLensDescription, ForgeThreadsRequest } from './changes-service.ts'
 import type { SourcedAnnotation, ViewAnnotations } from './annotations.ts'
 import { foldedHunks, useLensRun } from './lens-filter.ts'
 import { LensFilterMenu, type LensChoice } from './LensFilter.tsx'
@@ -69,7 +69,7 @@ import { observeToolbarFold } from './toolbar-fold.ts'
 import type { FileThreads, ThreadActions, ThreadFocus, ThreadWrite } from './ReviewThreads.tsx'
 import { inFileOrder, type ThreadFilter } from './review-threads.ts'
 import { usePlacedThreads, useThreadRead, type PlacedThread } from './thread-state.ts'
-import { ThreadList } from './ThreadList.tsx'
+import { ThreadList, type ThreadListTab } from './ThreadList.tsx'
 import type { HostStream, NoticeOptions, PanelSnapshot, StreamSnapshot } from './source.ts'
 import { numberOf, openChangeRequestOf, TONE_LABEL, toneOf, type ChangeRequestEntry, type ChangesPanelState } from './status.ts'
 import css from './ChangesTab.module.css'
@@ -105,6 +105,8 @@ export interface ChangesTabInjected {
   readonly hooks: {
     readonly lenses: HostObservable<readonly ForgeLensDescription[]>
     readonly extensions: HostObservable<StreamSnapshot<ForgeExtensionState | null>>
+    /** A plugin's latest request to open this view's thread list; bound as `useThreadsRequest`. */
+    readonly threadsRequest: HostObservable<ForgeThreadsRequest | null>
   }
   /** Classify the shown files with a Host lens; `signal` aborts the stream. */
   readonly changesLens: (request: ForgeLensRequest, signal: AbortSignal) => HostStream<ForgeLensFrame>
@@ -158,7 +160,7 @@ export interface ChangesTabInjected {
 /** Full props of the changes tab body. */
 export type ChangesTabProps =
   Pick<PropsRuntime<'sidebar.right.pane.tab'>, 'useTabInfo' | 'sessionId'>
-  & Pick<PropsRenderSlots<'forge.changes.toolbar' | 'forge.changes.file.menu' | 'forge.diff.line.annotation' | 'forge.diff.comment.actions'>,
+  & Pick<PropsRenderSlots<'forge.changes.toolbar' | 'forge.changes.file.menu' | 'forge.diff.line.annotation' | 'forge.diff.comment.actions' | 'forge.changes.threads.panel'>,
     'renderSlot'>
   & PropsStore<ReturnType<typeof createChangesStore>>
   & InjectFace<ChangesTabInjected>
@@ -571,7 +573,7 @@ export function ChangesView({
   localText,
   localCommits, changeRequestDiff, changeRequestText, changeRequestCommits, changeRequestReview, changeRequestReviewWrite, viewedFiles,
   changeRequestViewed, setFileViewed, openLink, copyPath, createChangeRequest, addReviewToInput, addThreadToInput, reviewQueue,
-  submitReview, report, useLenses, useExtensions, changesLens, renderSlot, t: translate,
+  submitReview, report, useLenses, useExtensions, useThreadsRequest, changesLens, renderSlot, t: translate,
 }: ChangesViewProps): ReactNode {
   const { navigation, signal } = tab
   const state = snapshot?.state ?? null
@@ -663,7 +665,8 @@ export function ChangesView({
   const choices = useStore(store => store.byTab[tab.id])
   const [wanted, setWanted] = useState<Wanted | null>(null)
   const [treeState, setTreeState] = useState<ChangedFilesState>({ query: '', collapsed: {}, selected: null })
-  const [treePosition, setTreePosition] = useState<FileTreePosition>('left')
+  // The tree docks on the right of the files by default, next to the review pane it shares the edge with.
+  const [treePosition, setTreePosition] = useState<FileTreePosition>('right')
   const [treeWidth, setTreeWidth] = useState(0)
   // The lens's labels set the least width of the tree they sit above.
   const [lensWidth, setLensWidth] = useState(0)
@@ -778,7 +781,22 @@ export function ChangesView({
     readonly filter: ThreadFilter
     /** Whether the reader just opened the list and it has not taken the focus yet. */
     readonly claim: boolean
-  }>({ open: false, filter: 'unresolved', claim: false })
+    /** The shown tab. */
+    readonly tab: ThreadListTab
+    /** Width of the pane in pixels. */
+    readonly width: number
+  }>({ open: false, filter: 'unresolved', claim: false, tab: 'threads', width: 320 })
+  // A plugin can ask for the thread list, where its panel sections draw. The
+  // request names one view's address, so another view ignores it.
+  const threadsRequest = useThreadsRequest(current => current)
+  const servedThreadsRequest = useRef(0)
+  useEffect(() => {
+    if (target === null || threadsRequest === null) return
+    if (threadsRequest.revision <= servedThreadsRequest.current) return
+    if (threadsRequest.address !== changesAddress(target)) return
+    servedThreadsRequest.current = threadsRequest.revision
+    setThreadList(value => ({ ...value, open: true, claim: true, tab: threadsRequest.tab ?? 'threads' }))
+  }, [target, threadsRequest])
   const threadsToggle = useRef<HTMLButtonElement>(null)
   const [focus, setFocus] = useState<ThreadFocus | null>(null)
   const allFiles = useMemo(() => filesInTreeOrder(changedFileTree(data?.files ?? [])), [data])
@@ -1413,7 +1431,7 @@ export function ChangesView({
           {review !== null && (review.threads.length > 0 || review.truncated) && (
             <button ref={threadsToggle} type="button" className={css.threadsToggle} aria-pressed={threadList.open} data-forge-threads-toggle=""
               aria-label={t('thread.listAria', { count: review.threads.length })}
-              onClick={() => { setThreadList(value => ({ ...value, open: !value.open, claim: !value.open })) }}>
+              onClick={() => { setThreadList(value => ({ ...value, open: !value.open, claim: !value.open, ...(value.open ? {} : { tab: 'threads' as const }) })) }}>
               {t('thread.list')}<span className={css.threadsTotal}>{review.threads.length}</span>
             </button>
           )}
@@ -1504,6 +1522,11 @@ export function ChangesView({
         )}
         {review !== null && data?.kind === 'change' && threadList.open && (
           <ThreadList entries={placed.entries} files={allFiles} truncated={review.truncated} url={data.url}
+            tab={threadList.tab} chooseTab={(tab) => { setThreadList(value => ({ ...value, tab })) }}
+            width={threadList.width} resize={(width) => { setThreadList(value => ({ ...value, width })) }}
+            panels={target === null ? null : renderSlot('forge.changes.threads.panel', { target }, {
+              fallback: <p>{t('thread.draftsEmpty')}</p>,
+            })}
             filter={threadList.filter} choose={(filter) => { setThreadList(value => ({ ...value, filter })) }}
             claim={threadList.claim} claimed={() => { setThreadList(value => ({ ...value, claim: false })) }}
             open={(entry, covering) => {

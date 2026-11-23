@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** The changes tab: reading each source and scope, the toolbar, file sections, unchanged lines, notices, and failures. */
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './fonts-dom.client.ts'
@@ -19,7 +19,7 @@ import { createChangesStore } from '../src/client/changes-store.ts'
 import { ChangesTab, type ChangesTabInjected, type ChangesTabProps } from '../src/client/ChangesTab.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import type { HostStream, PanelSnapshot, StreamSnapshot } from '../src/client/source.ts'
-import type { ForgeLensDescription } from '../src/client/changes-service.ts'
+import type { ForgeLensDescription, ForgeThreadsRequest } from '../src/client/changes-service.ts'
 import type { ViewAnnotations } from '../src/client/annotations.ts'
 import type { ForgeChangesToolbarProps } from '../src/client/slots.ts'
 import { lensVersion } from '../src/lens-version.ts'
@@ -258,6 +258,8 @@ interface MountOptions {
   readonly lenses?: readonly ForgeLensDescription[]
   /** Plugin annotations of the view by path, or null while the renderer has no source for the view. */
   readonly annotations?: ViewAnnotations | null
+  /** Body a plugin draws for one slot key; a key without one draws the owner's fallback. */
+  readonly slots?: Readonly<Record<string, ReactNode>>
 }
 
 /** One plugin slot the view drew: its name, the owner props, and the dispatch options. */
@@ -338,6 +340,19 @@ function mount(options: MountOptions = {}) {
     state: options.extensions === undefined ? { lenses: [], maxAnnotationsPerFile: 100 } : options.extensions, disconnected: false,
   })
   const lenses = createSnapshotStore<readonly ForgeLensDescription[]>(options.lenses ?? [])
+  // One plugin's request to open the thread list, pushed by a test.
+  const threadsRequest = { value: null as ForgeThreadsRequest | null, listeners: new Set<() => void>() }
+  const threadsRequests = {
+    getSnapshot: () => threadsRequest.value,
+    subscribe: (listener: () => void) => {
+      threadsRequest.listeners.add(listener)
+      return () => { threadsRequest.listeners.delete(listener) }
+    },
+  }
+  const askThreads = (request: ForgeThreadsRequest | null): void => {
+    threadsRequest.value = request
+    for (const listener of [...threadsRequest.listeners]) listener()
+  }
   const annotations = createSnapshotStore<ViewAnnotations | undefined>(
     options.annotations === null ? undefined : options.annotations ?? new Map())
   const useAnnotationsOf = bindSnapshotSelector(annotations)
@@ -347,10 +362,11 @@ function mount(options: MountOptions = {}) {
     return select === undefined ? useAnnotationsOf(value => value) : useAnnotationsOf(select)
   }
   const slotCalls: SlotCall[] = []
-  // Records each plugin slot the view draws and draws nothing for it.
+  // Records each plugin slot the view draws. The real renderer draws the owner's fallback while no plugin
+  // registers for a key, so a key without a configured body draws that.
   const renderSlot = ((key: string, owner: unknown, slotOptions?: unknown) => {
     slotCalls.push({ key, owner, options: slotOptions })
-    return null
+    return (options.slots ?? {})[key] ?? (slotOptions as { readonly fallback?: ReactNode } | undefined)?.fallback ?? null
   }) as ChangesTabProps['renderSlot']
   const viewedFiles = options.viewedFiles ?? new ViewedFiles(SESSION)
   const props: ChangesTabProps = {
@@ -367,6 +383,7 @@ function mount(options: MountOptions = {}) {
     actions: store.actions,
     usePanel,
     useExtensions: bindSnapshotSelector(extensions),
+    useThreadsRequest: bindSnapshotSelector(threadsRequests),
     useLenses: bindSnapshotSelector(lenses),
     useAnnotations,
     renderSlot,
@@ -384,7 +401,7 @@ function mount(options: MountOptions = {}) {
   const paths = (): (string | null)[] => [...view.container.querySelectorAll('[data-forge-diff-file]')].map(element => element.getAttribute('data-forge-diff-file'))
   return {
     view, panel, visibility, stops, navigation, store, aborter, tabActions, unbind, faces, viewedFiles, section, paths, extensions, lenses,
-    annotations, slotCalls,
+    annotations, slotCalls, askThreads, contentId,
   }
 }
 
@@ -1665,19 +1682,21 @@ describe('line review actions', () => {
     fireEvent.change(tree.getByRole('textbox'), { target: { value: 'app.ts' } })
     fireEvent.click(tree.getByRole('button', { name: 'src/app.ts' }))
     expect(tree.getByRole('button', { name: 'src/app.ts' }).getAttribute('aria-current')).toBe('true')
-    const toggle = m.view.getByRole('button', { name: en['diff.moveFileTreeRight'] })
+    // The tree docks on the right, so the toggle's first stop hides it and the next one moves it left.
+    const toggle = m.view.getByRole('button', { name: en['diff.hideFileTree'] })
     toggle.focus()
-    fireEvent.click(toggle)
-    expect(m.view.getByRole('button', { name: en['diff.hideFileTree'] })).toBe(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    expect(document.activeElement).toBe(toggle)
-    expect(tree.getByRole('button', { name: 'src/app.ts' }).getAttribute('aria-current')).toBe('true')
     fireEvent.click(toggle)
     expect(m.view.getByRole('button', { name: en['diff.showFileTreeLeft'] })).toBe(toggle)
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(document.activeElement).toBe(toggle)
     fireEvent.click(toggle)
     expect(m.view.getByRole('button', { name: en['diff.moveFileTreeRight'] })).toBe(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(toggle)
+    // The query and the selection survived the hidden stop.
+    expect(tree.getByRole('button', { name: 'src/app.ts' }).getAttribute('aria-current')).toBe('true')
+    fireEvent.click(toggle)
+    expect(m.view.getByRole('button', { name: en['diff.hideFileTree'] })).toBe(toggle)
     expect(document.activeElement).toBe(toggle)
     expect(tree.getByRole('textbox')).toHaveProperty('value', 'app.ts')
     fireEvent.change(tree.getByRole('textbox'), { target: { value: '' } })
@@ -2097,16 +2116,16 @@ describe('ChangesTab review layers', () => {
     const m = mount()
     await settle()
     const toolbar = m.view.container.querySelector<HTMLElement>(`.${css.toolbar}`)!
-    expect(toolbar.getAttribute('data-tree')).toBe('left')
+    expect(toolbar.getAttribute('data-tree')).toBe('right')
     expect(toolbar.style.getPropertyValue('--forge-tree-width')).toBe('240px')
     expect(m.view.queryByRole('radiogroup')).not.toBeNull()
     const treeAction = (): HTMLElement => m.view.getByRole('button', { name: /^(Move file tree to the right|Hide file tree|Show file tree on the left)$/ })
     fireEvent.click(treeAction())
-    expect(toolbar.getAttribute('data-tree')).toBe('right')
-    fireEvent.click(treeAction())
     expect(toolbar.getAttribute('data-tree')).toBe('hidden')
     expect(m.view.queryByRole('radiogroup')).toBeNull()
     expect(m.view.getByRole('button', { name: 'Review layer: All' })).toBeDefined()
+    fireEvent.click(treeAction())
+    expect(toolbar.getAttribute('data-tree')).toBe('left')
   })
 })
 
@@ -2659,6 +2678,131 @@ describe('ChangesTab review threads', () => {
     fireEvent.click(toggle)
     fireEvent.click(m.view.getByRole('complementary').previousElementSibling!)
     expect(m.view.queryByRole('complementary')).toBeNull()
+  })
+
+  it('opens the thread list when a plugin asks for this view by its address', async () => {
+    const m = mount({ source, setup: reviewed() })
+    await settle()
+    expect(m.view.queryByRole('complementary')).toBeNull()
+    m.askThreads({ address: 'dsh-resource://forge-changes/another', revision: 1 })
+    await settle()
+    expect(m.view.queryByRole('complementary')).toBeNull()
+    m.askThreads({ address: m.contentId, revision: 2 })
+    await settle()
+    const list = m.view.getByRole('complementary')
+    expect(list).toBeDefined()
+    // The pane draws the plugin slot as the body of the drafts tab.
+    expect(m.slotCalls.filter(call => call.key === 'forge.changes.threads.panel').at(-1)?.owner)
+      .toEqual({ target: { sessionId: SESSION, source } })
+    // The same request again does not reopen a pane the reader closed.
+    fireEvent.keyDown(list, { key: 'Escape' })
+    expect(m.view.queryByRole('complementary')).toBeNull()
+    await settle()
+    expect(m.view.queryByRole('complementary')).toBeNull()
+  })
+
+  it('draws the pane as two tabs, with the thread count on its tab and the threads only on theirs', async () => {
+    const m = mount({ source, setup: reviewed() })
+    await settle()
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    const list = m.view.getByRole('complementary')
+    const tabs = within(list).getAllByRole('tab')
+    expect(tabs.map(tab => tab.textContent)).toEqual(['Threads13', 'Drafts'])
+    expect(within(list).getByRole('tablist').getAttribute('aria-label')).toBe(en['thread.tabsAria'])
+    const panels = [...list.querySelectorAll('[role="tabpanel"]')]
+    // Each tab names the panel it controls, and only the shown panel is laid out.
+    expect(tabs.map(tab => tab.getAttribute('aria-controls'))).toEqual(panels.map(panel => panel.id))
+    expect(panels.map(panel => panel.getAttribute('aria-labelledby'))).toEqual(tabs.map(tab => tab.id))
+    expect(panels.map(panel => panel.hasAttribute('hidden'))).toEqual([false, true])
+    expect(within(list).getAllByRole('radio')).toHaveLength(3)
+    expect(within(list).getByRole('heading', { name: 'src/app.ts' })).toBeDefined()
+  })
+
+  it('shows the plugin body on the drafts tab, mounted before and after it', async () => {
+    const m = mount({ source, setup: reviewed(), slots: {
+      'forge.changes.threads.panel': <section data-forge-drafts-body=""><h2>Draft body from the plugin</h2></section>,
+    } })
+    await settle()
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    const list = m.view.getByRole('complementary')
+    const body = list.querySelector('[data-forge-drafts-body]')
+    expect(body).not.toBeNull()
+    expect(within(list).queryByRole('heading', { name: 'Draft body from the plugin' })).toBeNull()
+    fireEvent.click(within(list).getByRole('tab', { name: 'Drafts' }))
+    expect(within(list).getByRole('heading', { name: 'Draft body from the plugin' })).toBeDefined()
+    expect(within(list).queryByRole('radio')).toBeNull()
+    expect(within(list).queryByRole('heading', { name: 'src/app.ts' })).toBeNull()
+    // Switching tabs hides the plugin body instead of unmounting it.
+    fireEvent.click(within(list).getByRole('tab', { name: /^Threads/ }))
+    expect(list.querySelector('[data-forge-drafts-body]')).toBe(body)
+    expect(within(list).getAllByRole('radio')).toHaveLength(3)
+  })
+
+  it('notes an empty drafts tab while no plugin draws the slot', async () => {
+    const m = mount({ source, setup: reviewed() })
+    await settle()
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    const list = m.view.getByRole('complementary')
+    const shown = (): Element | undefined => [...list.querySelectorAll('[role="tabpanel"]')].find(panel => !panel.hasAttribute('hidden'))
+    fireEvent.click(within(list).getByRole('tab', { name: 'Drafts' }))
+    expect(shown()?.textContent).toBe(en['thread.draftsEmpty'])
+  })
+
+  it('opens the tab a plugin asks for, and the threads tab when the request names none', async () => {
+    const m = mount({ source, setup: reviewed() })
+    await settle()
+    m.askThreads({ address: m.contentId, revision: 1, tab: 'drafts' })
+    await settle()
+    const selected = (name: RegExp | string): string | null =>
+      within(m.view.getByRole('complementary')).getByRole('tab', { name }).getAttribute('aria-selected')
+    expect([selected('Drafts'), selected(/^Threads/)]).toEqual(['true', 'false'])
+    // The view's own toggle reopens on the threads it counts, whatever tab the reader left.
+    fireEvent.keyDown(m.view.getByRole('complementary'), { key: 'Escape' })
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    expect([selected('Drafts'), selected(/^Threads/)]).toEqual(['false', 'true'])
+    fireEvent.keyDown(m.view.getByRole('complementary'), { key: 'Escape' })
+    m.askThreads({ address: m.contentId, revision: 2 })
+    await settle()
+    expect([selected('Drafts'), selected(/^Threads/)]).toEqual(['false', 'true'])
+  })
+
+  it('resizes the pane from its separator within bounds, and keeps the width after closing it', async () => {
+    const m = mount({ source, setup: reviewed() })
+    await settle()
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    const list = m.view.getByRole('complementary')
+    const handle = within(list).getByRole('separator')
+    const width = (): number => Number(handle.getAttribute('aria-valuenow'))
+    const applied = (): string => list.style.getPropertyValue('--forge-thread-list-width')
+    expect([handle.getAttribute('aria-orientation'), handle.getAttribute('aria-valuemin'), handle.getAttribute('aria-valuemax'),
+      handle.getAttribute('aria-valuenow')]).toEqual(['vertical', '260', '560', '320'])
+    expect(handle.getAttribute('aria-controls')).toBe(list.id)
+    expect(applied()).toBe('320px')
+    // The pane docks at the end of the body, so a step to the left widens it.
+    for (const [key, value] of [['ArrowLeft', 340], ['ArrowRight', 320], ['Home', 260], ['End', 560]] as const) {
+      fireEvent.keyDown(handle, { key })
+      expect([width(), applied()]).toEqual([value, `${value}px`])
+    }
+    // The edges clamp rather than run past them.
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    expect(width()).toBe(560)
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(width()).toBe(540)
+    const capture = vi.fn(), release = vi.fn()
+    Object.defineProperties(handle, { setPointerCapture: { value: capture }, releasePointerCapture: { value: release } })
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 500 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 460 })
+    expect(width()).toBe(560)
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 440 })
+    expect([capture.mock.calls.length, release.mock.calls]).toEqual([1, [[1]]])
+    fireEvent.keyDown(handle, { key: 'Home' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(width()).toBe(260)
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    fireEvent.keyDown(list, { key: 'Escape' })
+    expect(m.view.queryByRole('complementary')).toBeNull()
+    fireEvent.click(m.view.getByRole('button', { name: 'Review threads, 13 in total' }))
+    expect(within(m.view.getByRole('complementary')).getByRole('separator').getAttribute('aria-valuenow')).toBe('280')
   })
 
   it('steps through a file\'s unresolved threads in display order from the count in its header', async () => {
